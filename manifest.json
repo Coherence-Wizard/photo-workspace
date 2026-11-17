@@ -1,7 +1,7 @@
 {
   "id": "photo-workspace",
-  "name": "Photo Workspace",
-  "version": "0.0.3",
+  "name": "Coherence Photo",
+  "version": "0.0.4",
   "minAppVersion": "1.8.0",
   "description": "Tag and rate local photos with portable image metadata, browse folders, and edit and export images.",
   "author": "Coherence Wizard",

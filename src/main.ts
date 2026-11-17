@@ -26,14 +26,14 @@ export default class PhotoWorkspace extends Plugin {
     delete stored.sourceMode; delete stored.databasePath; delete stored.rootMappings;
     this.settings = { ...structuredClone(DEFAULT_SETTINGS), ...stored };
     const adapter = this.app.vault.adapter;
-    if (!(adapter instanceof FileSystemAdapter)) { new Notice('Photo Workspace requires desktop filesystem access.'); return; }
+    if (!(adapter instanceof FileSystemAdapter)) { new Notice('Coherence Photo requires desktop filesystem access.'); return; }
     this.bridge = new Bridge(() => this.settings, join(adapter.getBasePath(), this.app.vault.configDir, 'plugins', this.manifest.id, 'local-data'));
     this.registerView(VIEW_TYPES.tags, leaf => new TagsView(leaf, this));
     this.registerView(VIEW_TYPES.filters, leaf => new FiltersView(leaf, this));
     this.registerView(VIEW_TYPES.browser, leaf => new BrowserView(leaf, this));
     this.registerView(VIEW_TYPES.inspector, leaf => new InspectorView(leaf, this));
-    this.addRibbonIcon('images', 'Open photo workspace', () => { void this.openWorkspace(); });
-    this.addCommand({ id: 'open-workspace', name: 'Open photo workspace', callback: () => { void this.openWorkspace(); } });
+    this.addRibbonIcon('images', 'Open photo library', () => { void this.openWorkspace(); });
+    this.addCommand({ id: 'open-workspace', name: 'Open photo library', callback: () => { void this.openWorkspace(); } });
     this.addCommand({ id: 'reset-layout', name: 'Reset photo pane layout', callback: () => {
       for (const type of Object.values(VIEW_TYPES)) this.app.workspace.detachLeavesOfType(type);
       void this.openWorkspace();
@@ -238,7 +238,7 @@ export default class PhotoWorkspace extends Plugin {
     const filename = photo.name.replace(/[\\/:*?"<>|\[\]#^]/g, '-');
     const notePath = normalizePath(`${folder}/${filename} (${photo.id}).md`);
     let note = this.app.vault.getAbstractFileByPath(notePath);
-    if (!note) note = await this.app.vault.create(notePath, `---\nphoto_catalog: ${JSON.stringify(this.catalog!.key)}\nphoto_id: ${photo.id}\n---\n\n# ${photo.name}\n\n[Open photo in Photo Workspace](${link})\n\n`);
+    if (!note) note = await this.app.vault.create(notePath, `---\nphoto_catalog: ${JSON.stringify(this.catalog!.key)}\nphoto_id: ${photo.id}\n---\n\n# ${photo.name}\n\n[Open photo in Coherence Photo](${link})\n\n`);
     if (note instanceof TFile) await this.app.workspace.getLeaf('tab').openFile(note);
   }
 }
@@ -360,7 +360,7 @@ class MessageModal extends Modal {
 }
 class ConnectionModal extends Modal {
   constructor(private plugin: PhotoWorkspace) { super(plugin.app); }
-  onOpen(): void { this.titleEl.setText('Photo Workspace connection'); this.modalEl.addClass('pw-connection-modal'); renderSettings(this.contentEl, this.plugin); }
+  onOpen(): void { this.titleEl.setText('Coherence Photo connection'); this.modalEl.addClass('pw-connection-modal'); renderSettings(this.contentEl, this.plugin); }
 }
 class PhotoSettings extends PluginSettingTab {
   constructor(private plugin: PhotoWorkspace) { super(plugin.app, plugin); }
@@ -371,7 +371,7 @@ function renderSettings(el: HTMLElement, plugin: PhotoWorkspace): void {
   const settings = plugin.settings;
   setupHelp(el, plugin);
   new Setting(el).setName('Include subfolders when browsing').setDesc('On: show the selected folder first, then its subfolders in alphabetical hierarchy order with dividers as you scroll. Off: show only photos directly in the selected folder. Photo sorting applies within each folder.').addToggle(t => t.setValue(settings.includeSubfolders).onChange(async value => { settings.includeSubfolders = value; await plugin.save(); const browser = plugin.activeBrowser; if (browser?.filters.folderAbsolute) { browser.filters.folderRecursive = value; browser.filters.groupFolders = value; await browser.reload(); plugin.emit('filters'); } }));
-  el.createEl('p', { cls: 'pw-hint', text: 'Keyboard: ← / → moves through previews, 1–5 rates selected photos, and T opens Add tags in preview. You can assign your own shortcuts in Obsidian Settings → Hotkeys; search for Photo Workspace.' });
+  el.createEl('p', { cls: 'pw-hint', text: 'Keyboard: ← / → moves through previews, 1–5 rates selected photos, and T opens Add tags in preview. You can assign your own shortcuts in Obsidian Settings → Hotkeys; search for Coherence Photo.' });
     new Setting(el).setName('Photo folder').setDesc('Paste the full folder path. All subfolders are included; hidden folders are skipped. Click Scan photos after adding, moving, or changing files outside the plugin.').addText(t => t.setValue(settings.photoFolder).onChange(async value => { settings.photoFolder = value.trim(); plugin.scanResult = null; plugin.emit('status'); await plugin.save(); })).addButton(b => b.setButtonText('Use this vault').onClick(async () => { const adapter = plugin.app.vault.adapter; if (adapter instanceof FileSystemAdapter) { settings.photoFolder = adapter.getBasePath(); plugin.scanResult = null; await plugin.save(); el.empty(); renderSettings(el, plugin); } }));
   new Setting(el).setName('Python executable').setDesc('Leave blank to detect Python 3.').addText(t => t.setValue(settings.pythonPath).onChange(async v => { settings.pythonPath = v.trim(); await plugin.save(); }));
   new Setting(el).setName('ExifTool executable').setDesc('Leave blank to detect a separately installed ExifTool, or enter its full executable path.').addText(t => t.setValue(settings.exiftoolPath).onChange(async v => { settings.exiftoolPath = v.trim(); await plugin.save(); }));
@@ -409,7 +409,7 @@ function renderSettings(el: HTMLElement, plugin: PhotoWorkspace): void {
 function setupHelp(el: HTMLElement, plugin: PhotoWorkspace): void {
   const help = el.createEl('details', { cls: 'pw-setup-help' }); help.open = !plugin.hasConnection();
   help.createEl('summary', { text: 'Getting started — what to install' });
-  help.createEl('p', { text: 'Photo Workspace needs two free helpers: Python runs the local photo catalog, and ExifTool reads and changes photo metadata. They work on your computer; your photos are not uploaded.' });
+  help.createEl('p', { text: 'Coherence Photo needs two free helpers: Python runs the local photo catalog, and ExifTool reads and changes photo metadata. They work on your computer; your photos are not uploaded.' });
   const step = (title: string, text: string, url: string, label: string) => { help.createEl('h4', { text: title }); help.createEl('p', { text }); help.createEl('a', { text: label, href: url, attr: { target: '_blank', rel: 'noopener noreferrer' } }); };
   step('1. Install Python', 'Visit Python’s download page and choose the current stable version for your computer (not a preview). On Mac, open the downloaded installer and follow its steps. On Windows, use the official installer/Install Manager and follow its setup prompts. On Linux, install Python 3 from your software manager. Restart Obsidian afterward. This plugin needs Python 3.10 or newer.', 'https://www.python.org/downloads/', 'Download Python');
   step('2. Install ExifTool', 'Mac: download the macOS package and run its installer. Windows: download and extract the Windows executable package, rename exiftool(-k).exe to exiftool.exe, and keep the exiftool_files folder beside it. Choose that executable below if it is not detected. Linux: install ExifTool from your software manager (often called libimage-exiftool-perl or perl-Image-ExifTool).', 'https://exiftool.org/install.html', 'ExifTool downloads and installation guide');

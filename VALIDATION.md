@@ -1,6 +1,6 @@
 # Release validation
 
-Version 0.0.3 continues the desktop beta with keyboard tag submission, adjustable crop handles, clockwise rotation, and folder-only photo libraries.
+Version 0.0.4 renames the plugin to Coherence Photo and continues the desktop beta with keyboard tag submission, adjustable crop handles, clockwise rotation, and folder-only photo libraries.
 
 Automated tests use disposable generated PNGs and a plugin-owned SQLite index. ExifTool must be installed; integration tests are skipped otherwise.
 

@@ -17,7 +17,7 @@ export class Bridge {
     const helper = await (this.helper ??= this.prepareHelper());
     const candidates = configured ? [configured] : this.python ? [this.python] : process.platform === 'win32'
       ? ['python', 'python3'] : ['/opt/homebrew/bin/python3', '/usr/local/bin/python3', 'python3'];
-    let last: Error = new Error('Python 3 was not found. Install Python 3.10 or newer and set its path in Photo Workspace settings.');
+    let last: Error = new Error('Python 3 was not found. Install Python 3.10 or newer and set its path in Coherence Photo settings.');
     for (const command of candidates) {
       if (command.startsWith('/') && !existsSync(command)) continue;
       try {

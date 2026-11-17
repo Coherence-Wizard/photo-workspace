@@ -1,8 +1,8 @@
-# Photo Workspace
+# Coherence Photo
 
 **A beta plugin, still in testing, that brings Obsidian’s local-file-first philosophy to your photo library.**
 
-Your photos belong to you, and so should the work you put into organizing them. Photo Workspace saves tags, nested tags, and ratings directly into supported image files. The time you spend building a collection stays with the photos instead of being locked inside one program’s proprietary database. Move your folders, back them up, or open them in another application that reads the same metadata.
+Your photos belong to you, and so should the work you put into organizing them. Coherence Photo saves tags, nested tags, and ratings directly into supported image files. The time you spend building a collection stays with the photos instead of being locked inside one program’s proprietary database. Move your folders, back them up, or open them in another application that reads the same metadata.
 
 This simple plugin lets you work with image metadata and your existing folder system inside Obsidian. Browse thumbnails, organize photos with tags and nested tags, rate images, make basic photo edits, and export collections selected by tags, ratings, or other properties—with optional resizing.
 
@@ -20,11 +20,13 @@ The plugin maintains a **rebuildable local index** for fast browsing. Your saved
 
 Optional XMP sidecars are available for users who want them. Unsupported embedded formats report an error; the plugin never silently creates sidecars. Keep any deliberately created sidecars beside their photos. Existing sidecars are not deleted or migrated automatically, and other applications may prioritize them over embedded metadata.
 
+Version 0.0.4 renames Photo Workspace to **Coherence Photo**. Existing settings, photo indexes, and keyboard shortcuts carry over automatically.
+
 ## Getting started
 
-1. Install Photo Workspace from **Settings → Community plugins → Browse** and enable it.
+1. Install Coherence Photo from **Settings → Community plugins → Browse** and enable it.
 2. Install [Python](https://www.python.org/downloads/) and [ExifTool](https://exiftool.org/install.html). Restart Obsidian afterward.
-3. Open **Photo Workspace: Open photo workspace** from the command palette or the images ribbon icon.
+3. Open **Coherence Photo: Open photo library** from the command palette or the images ribbon icon.
 4. Open **Connect**, choose **Use this vault** or enter a full photo-folder path, and click **Check helpers**, then **Scan photos**.
 5. Enable **Metadata writing** when you are ready to assign tags and ratings. It starts disabled for new installations.
 
@@ -55,7 +57,7 @@ Cut/Copy/Paste use the plugin’s internal clipboard. Paste destinations must be
 | Escape | Close tag entry, cancel an active crop, or return from preview to thumbnails |
 | Enter during crop | Apply the adjustable crop rectangle |
 
-Shortcuts do not assign ratings while you type in a text field. Set custom shortcuts under **Settings → Hotkeys**, searching for **Photo Workspace**. Commands include ratings, clearing a rating, navigation, tags, export, and automatic levels.
+Shortcuts do not assign ratings while you type in a text field. Set custom shortcuts under **Settings → Hotkeys**, searching for **Coherence Photo**. Commands include ratings, clearing a rating, navigation, tags, export, and automatic levels.
 
 ## When changes are saved
 
@@ -103,4 +105,4 @@ Release files are `main.js`, `manifest.json`, and `styles.css`. The Python helpe
 
 Report bugs in [GitHub Issues](https://github.com/Coherence-Wizard/photo-workspace/issues), including OS, Obsidian/plugin version, and error text. Do not upload private photos or databases. Future timeline, faces, map, and richer export tools can use the same photo/query interface; see [ARCHITECTURE.md](ARCHITECTURE.md).
 
-Photo Workspace is an independent community project, not an official Obsidian product. Released under the [MIT License](LICENSE).
+Coherence Photo is an independent community project, not an official Obsidian product. Released under the [MIT License](LICENSE).

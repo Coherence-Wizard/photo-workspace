@@ -53,7 +53,7 @@ def exiftool_path(configured=''):
     for candidate in candidates:
         if candidate and Path(candidate).is_file():
             return str(Path(candidate).resolve())
-    raise ValueError('ExifTool was not found. Install ExifTool or choose its executable in Photo Workspace settings.')
+    raise ValueError('ExifTool was not found. Install ExifTool or choose its executable in Coherence Photo settings.')
 
 
 def run_exif(tool, args, timeout=90):
@@ -303,7 +303,7 @@ class Catalog:
         base = self.root_path(root) if root else None
         if base is None:
             if require:
-                raise ValueError('Choose an available photo folder in Photo Workspace settings.')
+                raise ValueError('Choose an available photo folder in Coherence Photo settings.')
             return None
         override = self.locations.get(str(row['id']))
         if override:
@@ -521,7 +521,7 @@ class Catalog:
         tool = exiftool_path(self.settings.get('exiftoolPath', ''))
         embedded = self.settings.get('writeMode', 'embedded') == 'embedded'
         if embedded and source.suffix.lower() not in ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.webp']:
-            raise ValueError('This format does not support embedded writes in Photo Workspace. JPEG, PNG, TIFF and WebP are supported. No file was changed and no sidecar was created. You can explicitly select sidecar mode for other formats.')
+            raise ValueError('This format does not support embedded writes in Coherence Photo. JPEG, PNG, TIFF and WebP are supported. No file was changed and no sidecar was created. You can explicitly select sidecar mode for other formats.')
         target = source if embedded else self.sidecar(source)
         if target.is_symlink():
             raise ValueError('Metadata writes through a sidecar symlink are not supported.')
@@ -529,7 +529,7 @@ class Catalog:
         if previous and str(target) != previous['target']:
             raise ValueError('This photo has pending metadata in a different write destination. Undo that batch before changing destinations.')
         if previous and digest(target) != previous['hash']:
-            raise ValueError('Metadata changed outside Photo Workspace. Resolve the pending change in settings before writing again.')
+            raise ValueError('Metadata changed outside Coherence Photo. Resolve the pending change in settings before writing again.')
         before_hash = digest(target)
         self.journal.mkdir(parents=True, exist_ok=True)
         op_id = uuid.uuid4().hex
@@ -545,7 +545,7 @@ class Catalog:
             else:
                 stage.unlink()
                 # Seed the new XMP from the image before overlaying catalog fields.
-                exif(tool, ['-TagsFromFile', str(source), '-all:all', '-XMP-xmp:CreatorTool=Photo Workspace', '-o', str(stage), str(source)])
+                exif(tool, ['-TagsFromFile', str(source), '-all:all', '-XMP-xmp:CreatorTool=Coherence Photo', '-o', str(stage), str(source)])
             metadata = self.metadata(photo)
             disk = json.loads(exif(tool, ['-j', '-struct', '-XMP-digiKam:TagsList', '-XMP-lr:HierarchicalSubject', '-XMP-dc:Subject',
                                         '-XMP-xmp:Rating', '-XMP-digiKam:ColorLabel', '-XMP-digiKam:PickLabel',
@@ -801,7 +801,7 @@ def dispatch(request):
             return sorted(iid for iid in ids if cat.locations.get(str(iid), '') is not None)
         if action == 'write':
             if not cat.settings.get('writesEnabled'):
-                raise ValueError('Enable metadata writing in Photo Workspace settings first.')
+                raise ValueError('Enable metadata writing in Coherence Photo settings first.')
             successes, errors = [], []
             for image_id in request.get('ids', []):
                 try:

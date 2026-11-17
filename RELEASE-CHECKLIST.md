@@ -23,3 +23,7 @@ Do not mark an operating system or camera format supported solely because a buil
 ## 0.0.3 beta update
 
 Keyboard submission, draft crop handles, clockwise rotation, folder-only sources, and a local-file-first introduction. Keep the published plugin ID stable while discussing a new display name. Check the corresponding GitHub Actions run and Community scorecard for release status.
+
+## 0.0.4 name update
+
+Rename the public display name to Coherence Photo. Retain the `photo-workspace` plugin ID, command IDs, view types, data paths, and repository URL for existing installations and update continuity.
