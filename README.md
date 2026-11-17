@@ -1,135 +1,96 @@
 # Photo Workspace
 
-Browse a photo folder or digiKam collection inside Obsidian, assign hierarchical metadata tags in batches, and edit images without overwriting the originals.
+**A beta plugin, still in testing, that brings Obsidian’s local-file-first philosophy to your photo library.**
 
-**Version 0.0.2 is the first public desktop release.** [Install from the official Obsidian Community listing](https://community.obsidian.md/plugins/photo-workspace).
+Your photos belong to you, and so should the work you put into organizing them. Photo Workspace saves tags, nested tags, and ratings directly into supported image files. The time you spend building a collection stays with the photos instead of being locked inside one program’s proprietary database. Move your folders, back them up, or open them in another application that reads the same metadata.
 
-## Included
+This simple plugin lets you work with image metadata and your existing folder system inside Obsidian. Browse thumbnails, organize photos with tags and nested tags, rate images, make basic photo edits, and export collections selected by tags, ratings, or other properties—with optional resizing.
 
-- Photo counts beside tags and folders (including descendants); click a folder to browse its photos in the grid, and use its chevron to expand subfolders.
-- Independently scrollable tags and vault folders in the left sidebar, each with expand/collapse-all controls, plus an attribute filters tab.
-- Native tag suggestions while typing; right-click tags to review and apply collection-wide rename/delete, including optional subtags.
-- Photo context menus in grid and preview: Open With Explorer (Finder on Mac), Open With App, Add Tag, Cut, Copy, Paste, Rename, Delete, and export.
-- Preview zoom slider (10–400%) with drag-to-pan.
-- Multi-select “I’m Feeling Lucky” with batch recipe undo; export selection, matching filters, a tag, or a collection folder with proportional resize.
-- Paged thumbnail grid with adjustable thumbnail size, single / Cmd-Ctrl / Shift selection, and drag-and-drop assignment to tags.
-- Double-click preview with fit, actual-size display, previous / next, and Escape back to the grid.
-- Inspector with metadata, batch star ratings, digiKam color labels, pick labels, titles, captions, and tags.
-- Filters for collection, album, text, nested tags, rating, color, pick, date, camera, lens, format, orientation, GPS presence, and untagged photos. Save reusable filters.
-- Exposure, contrast, highlights, shadows, white-balance adjustments, saturation, vibrance, levels, free/fixed/custom crop, straighten, and “I’m Feeling Lucky” automatic levels.
-- Persistent adjustment recipes, before/after comparison, adjustment undo/redo, and full-resolution sRGB PNG exports with metadata copied when ExifTool is available.
-- XMP sidecar or embedded metadata writing, a durable per-file journal, conflict detection, and batch undo.
-- Photo notes with stable catalog/image links back into the plugin.
+Tagging is the primary workflow, so keyboard controls come first: use **← / →** to advance through photos, **T** to add tags, and **1–5** to assign a rating. Type a tag and press **Enter** to select or queue it. With the entry field empty, press **Enter again** to save your queued tags, then move on to the next photo. Multiple new tags can be separated by commas; use `/` for nested tags.
 
-## Requirements
+**Requires Obsidian desktop, Python 3.10 or newer, and ExifTool.** Install the two helpers separately; the plugin’s settings include step-by-step instructions and a **Check helpers** button. No account, cloud service, or other photo application is required.
 
-- Obsidian desktop 1.8.0 or newer. Local manual testing uses macOS and Obsidian 1.15.1.
-- Either a photo folder (no digiKam installation or database needed), or a local digiKam SQLite core catalog (`digikam4.db`). Schema 17 is the tested schema. The reader validates core tables and reports incompatible catalogs; it never migrates them.
-- Python **3.10 or newer** with its standard `sqlite3` module. No Python packages are required.
-- [ExifTool](https://exiftool.org/) for folder scans, metadata writes, metadata-preserving exports, and embedded RAW previews.
-- Access to the collection's image folders. The database and image files can live outside the Obsidian vault.
+[Install from the Obsidian Community directory](https://community.obsidian.md/plugins/photo-workspace) · [GitHub releases](https://github.com/Coherence-Wizard/photo-workspace/releases) · [Report an issue](https://github.com/Coherence-Wizard/photo-workspace/issues)
 
-On macOS, the plugin detects Homebrew / local Python installations and ExifTool bundled with digiKam when available. Windows and Linux accept explicit executable paths; no runtime downloads or installation scripts run inside the plugin. These operating systems still require live acceptance testing before a stable public release.
+## What travels with your photos
 
-## Keyboard and folder browsing
+Embedded metadata writing supports **JPEG, PNG, TIFF, and WebP**. ExifTool updates metadata without re-encoding image pixels. Nested keywords and ratings are stored in widely used XMP fields, with compatibility fields for applications that use them. Other programs differ in which fields and hierarchies they display; portability does not mean every application interprets everything identically.
 
-While a photo view has keyboard focus, **1–5** assigns that rating to selected photos. In preview, **← / →** advances through the collection (including the next page), **T** opens Add tags, and **Escape** returns to thumbnails. Shortcuts do not run while typing into inputs. Assign custom shortcuts under **Settings → Hotkeys**, searching for **Photo Workspace**. Commands include ratings 0–5 (0 clears ratings), previous/next preview, adding tags, grid view, export, and batch automatic levels.
+The plugin maintains a **rebuildable local index** for fast browsing. Your saved tags and ratings remain in the files if you stop using the plugin. Edit recipes, saved filters, unused tag names, photo-note links, and undo backups are stored in the vault and are not portable image metadata.
 
-In the connection settings, **Include subfolders when browsing** controls folder clicks. On shows photos directly in the selected folder first, then each subfolder in alphabetical hierarchy order, separated by folder headings as you scroll. Off shows only the selected folder's own photos. Sorting applies within each folder, and additional pages load as you scroll.
+Optional XMP sidecars are available for users who want them. Unsupported embedded formats report an error; the plugin never silently creates sidecars. Keep any deliberately created sidecars beside their photos. Existing sidecars are not deleted or migrated automatically, and other applications may prioritize them over embedded metadata.
 
-Select multiple tags with **Cmd-click** (Mac) or **Ctrl-click** (Windows/Linux), or **Shift-click** a range. Right-click the selection to delete all selected tags from matching photos in one undoable batch. The review shows a distinct photo count, and you can choose whether to include subtags.
+## Getting started
 
-## Installation
+1. Install Photo Workspace from **Settings → Community plugins → Browse** and enable it.
+2. Install [Python](https://www.python.org/downloads/) and [ExifTool](https://exiftool.org/install.html). Restart Obsidian afterward.
+3. Open **Photo Workspace: Open photo workspace** from the command palette or the images ribbon icon.
+4. Open **Connect**, choose **Use this vault** or enter a full photo-folder path, and click **Check helpers**, then **Scan photos**.
+5. Enable **Metadata writing** when you are ready to assign tags and ratings. It starts disabled for new installations.
 
-Open the [official listing](https://community.obsidian.md/plugins/photo-workspace) and choose **Add to Obsidian**, or find **Photo Workspace** in Settings → Community plugins → Browse. Python and ExifTool still need to be installed separately; the plugin settings walk through that setup.
+**Scan photos** reads existing metadata into the local index. It does not change your images. It scans subfolders, skips hidden folders and symbolic links, and reuses unchanged files on later scans. A green **Verified** result confirms a complete scan; unreadable files are listed while valid results remain available. Refresh after files are changed by other applications.
 
-For a manual installation:
+You may keep photos inside or outside the vault. Removable drives must be connected at the configured path. No Python packages are needed. The plugin does not download or install its helpers automatically.
 
-1. Create or open the Obsidian vault you want to use for photos.
-2. Copy the `photo-workspace` release folder into `<vault>/<config directory>/plugins/`. The default configuration directory is `.obsidian`.
-3. Enable **Photo Workspace** under Settings → Community plugins.
-4. Run **Photo Workspace: Open photo workspace** from the command palette, or click its images ribbon icon.
-5. Open **Connect** and choose **Photo folder** or **Existing digiKam database**. For folder mode, choose **Use this vault** or enter a full photo-folder path, then click **Scan photos**. For digiKam mode, choose `digikam4.db` and test the connection. **Detect** can read the standard local digiKam configuration.
-6. Map each collection to its actual root folder. Removable drives require an explicit mapping; a proposed path is never silently accepted.
+## Organize and browse
 
-The plugin arranges two left sidebar views, a center photo tab, and a right inspector. These are ordinary Obsidian views and can be moved or resized.
+- Independently scrollable tag and vault-folder trees, photo counts, and expand/collapse-all controls.
+- Click a folder to show thumbnails. **Include subfolders when browsing** chooses direct-folder photos only or a scrolling hierarchy with folder dividers.
+- Cmd/Ctrl-click or Shift-click to select multiple photos. Drag them onto a tag to assign it to every selected photo.
+- Type to find existing tags. Right-click tags to rename or delete them across the collection. Select multiple tags with Cmd/Ctrl or Shift to delete them in one reviewed batch; including subtags is optional.
+- Filter by tag, folder, text, rating, color or pick label, date, camera, lens, format, orientation, GPS presence, or untagged photos. Save filters for reuse.
+- Resize thumbnails; double-click for preview, with a zoom slider and drag-to-pan.
+- Right-click photos for **Open With Explorer** (Finder on Mac), **Open With App**, **Add Tag**, **Rotate**, **Cut**, **Copy**, **Paste**, **Rename**, **Delete**, and export.
 
-## Working without digiKam
+Cut/Copy/Paste use the plugin’s internal clipboard. Paste destinations must be inside the selected photo collection. Copies get unique names. Rename retains the file extension and moves matching sidecars. Delete uses system Trash/Recycle Bin after confirmation; restore there and refresh. Metadata Undo does not restore deleted files.
 
-Choose **Photo folder** in settings. Python and ExifTool are still required, but digiKam is not. The plugin creates its own local index under `local-data/folder-indexes`, reads embedded metadata, and scans the selected folder recursively. Hidden folders and symbolic links are excluded. Click Refresh/Scan after files change outside the plugin; unchanged files are skipped. If explicitly using sidecar mode, matching sidecars are included in the scan. Recipes and IDs survive moves performed through the plugin; external renames may get new IDs.
+## Keyboard controls
 
-**Scan photos** reads embedded tags, ratings, labels, and properties and updates a local index. It does not change image files or create sidecars. Progress appears during scanning; a persistent green **Verified** result confirms a complete scan. Unreadable files produce a warning and a file list while valid results stay available. Completed batches are retained if a long scan is interrupted. The first scan of a large collection can take time; subsequent scans reuse unchanged files.
+| Key | Action |
+| --- | --- |
+| ← / → | Previous / next photo in preview |
+| T | Open tag entry in preview |
+| Enter in tag entry | Select/queue the typed tag; if the field is empty, save queued tags |
+| 1–5 | Rate selected photos in preview or thumbnails |
+| Escape | Close tag entry, cancel an active crop, or return from preview to thumbnails |
+| Enter during crop | Apply the adjustable crop rectangle |
 
-Tag creation accepts commas, for example `Art, Adventure, Places/Oregon/Coast`. These create three tags; assigning them writes them to selected photos.
-
-Existing digiKam mode needs only the database and accessible image files; digiKam does not have to be running. If the plugin currently uses ExifTool bundled inside digiKam, install ExifTool separately before uninstalling digiKam.
-
-The settings include a beginner setup guide with official download links and a **Check helpers** button. Download current stable Python from [python.org](https://www.python.org/downloads/), and follow the platform-specific [ExifTool installer instructions](https://exiftool.org/install.html). [digiKam](https://www.digikam.org/download/) is optional.
-
-## File and tag actions
-
-Right-click a photo in the grid or preview. **Open With Explorer** reveals it in Finder/File Explorer. **Open With App** opens the system application chooser (Linux lists registered image applications from standard `.desktop` folders and launches the selection using `gio`). Cut/Copy/Paste use the plugin's internal photo clipboard, not the operating system clipboard. Paste accepts destinations inside a mapped collection. Copies receive unique names. Rename keeps the extension; recognized sidecars follow the file. Delete asks for confirmation and uses system Trash/Recycle Bin. Restore files there and refresh; Metadata Undo is not a file-deletion undo. File operations and app choosers still need Windows/Linux live acceptance testing.
-
-In digiKam mode, file moves use local path overrides so this plugin can keep finding the image. Rescan the affected folders in digiKam to update its database. New copies become visible in digiKam mode after that rescan. Folder mode indexes copies on refresh. digiKam may assign new IDs after external moves, so reconnecting a moved image's old recipe in digiKam mode may require manual attention.
-
-Right-click a tag and choose Rename or Delete. The dialog shows the affected photo count before applying. These actions span the whole connected collection, not just the loaded thumbnails. Include subtags is optional; unrelated tags are preserved. Unsupported/offline files are reported individually. Metadata Undo restores successful writes. Tag suggestions show the effective tags present in photos plus locally created tags.
-
-## Batch adjustment and export
-
-Select multiple thumbnails, then click **I’m Feeling Lucky** to save automatic-level recipes for the selection. Original pixels stay unchanged. **Undo batch adjustment** restores the previous recipes from the last batch. This batch undo is separate from metadata undo.
-
-Choose **Export photos…** for selected photos, all current filter matches, a tag including subtags, or a collection folder including subfolders. Destination may be a new vault-relative folder or an absolute folder elsewhere. Exports apply saved adjustments and create PNGs with metadata. The dialog only shows settings relevant to the selected photo source and resize mode. Resize can fit within a maximum width/height, use a percentage, or retain edited dimensions; aspect ratio is preserved and enlargement is off by default. Existing files are never overwritten. Exports run sequentially with progress, cancellation between photos, and per-photo errors. RAW embedded previews cannot be exported as full-resolution images. Limits: 60 megapixels and 30,000 pixels per edge.
+Shortcuts do not assign ratings while you type in a text field. Set custom shortcuts under **Settings → Hotkeys**, searching for **Photo Workspace**. Commands include ratings, clearing a rating, navigation, tags, export, and automatic levels.
 
 ## When changes are saved
 
-Creating a tag only creates an available tag name. In the Add tags dialog, choosing a suggestion adds it to the pending selection; **Apply tags** writes it to the selected images immediately. Dragging photos onto a tag and assigning a star rating also write immediately when metadata writing is enabled. No export or separate save button is needed. Failed writes are reported. **Undo metadata** restores successful writes.
+Choosing a tag suggestion queues it. **Apply tags**, or **Enter with an empty entry field**, writes the queued tags immediately. Drag-and-drop tags and ratings also write immediately when metadata writing is enabled. No export or additional save is needed. Failed writes are reported, and **Undo metadata** restores successful writes when the files have not changed externally.
 
-Image adjustments work differently: they save an editing recipe automatically. **Export copies** applies that recipe to new image files.
+Creating an unused tag name alone does not write metadata to photos. A batch may partly succeed; completed writes remain saved and can be undone. Cancellation stops between small groups of photos. Local backups and a journal protect metadata writes and enable recovery after interruption. Conflicting external changes are never silently overwritten.
 
-## Metadata and digiKam synchronization
+## Basic editing and export
 
-In digiKam mode, the catalog connection is **read-only**. Metadata changes are saved to image files or XMP sidecars, then shown immediately using a local pending overlay. The plugin does not write SQL into digiKam's live database.
+Adjust exposure, contrast, highlights, shadows, white balance, saturation, vibrance, levels, and straighten. **I’m Feeling Lucky** applies conservative automatic levels, including to multiple selected thumbnails. It is local processing, not a remote AI service.
 
-Metadata writing starts disabled in a normal installation. Enable it after checking your collection mappings and choosing a write destination:
+**Adjust crop** displays a persistent crop rectangle with eight resize handles. Drag the center to move it, drag edges/corners to resize, or draw a new rectangle. Choose free, original, fixed, or custom ratios. Click **Apply crop** or press Enter when ready; Escape cancels. Focus a handle and use arrow keys for fine adjustment, with Shift for larger steps.
 
-- **XMP sidecar:** keeps the original photo bytes unchanged. This is optional. Choose `photo.jpg.xmp` (digiKam default) or `photo.xmp`. Shared-stem sidecars are rejected when multiple images share that filename stem.
-- **Embedded (default):** supported for JPEG, PNG, TIFF, and WebP. The entire pre-write file is backed up locally for undo. RAW and other unsupported embedded writes are refused with a per-photo error; the plugin never silently falls back to sidecars. ExifTool updates metadata without re-encoding image pixels.
+**Rotate** turns a photo 90° clockwise per click. It is available in the preview toolbar and photo context menu. Rotation, crop, and other edits save a recipe without overwriting original pixels; **Export copy** renders the edited result. Undo/Redo are available in preview.
 
-Existing sidecars are not automatically deleted or migrated. digiKam may still prioritize an existing sidecar over embedded metadata. Before switching destinations on a photo with pending changes, undo those changes or import them into digiKam and release the pending overlay.
+Export selected photos, current filter matches, a tag and its subtags, or a folder and its subfolders. Resize proportionally to maximum dimensions or a percentage, or keep edited dimensions. The dialog hides irrelevant options. Exports create unique **8-bit sRGB PNG** copies, copy metadata when possible, normalize orientation, and remove stale face-region geometry. Existing files are not overwritten. Limits are 60 megapixels and 30,000 pixels per edge.
 
-For sidecars, configure digiKam to **read from XMP sidecar files**, matching your chosen sidecar filename convention. digiKam can prioritize sidecar metadata over embedded metadata; new sidecars are seeded from the image and include catalog tags and selected catalog fields. Existing sidecars preserve other metadata fields.
-
-After writing, in digiKam use **Item → Reread Metadata From File**, or **Tools → Maintenance → Metadata Synchronizer → From files to the database**. The precise menu wording depends on digiKam version. There is no guarantee of immediate refresh in a running digiKam instance.
-
-The plugin displays **“Metadata saved; digiKam refresh pending”** until you review and release the local overlay in connection settings. Do this only after digiKam has imported the metadata. Releasing an overlay accepts the current catalog and ends that operation's plugin undo history; it does not modify the photo files. Reloading the plugin does not lose pending changes.
-
-If metadata changed externally while an operation is pending, further writes and undo stop for that photo instead of overwriting the other application's change. Review the photo in digiKam, reconcile its metadata, then release the pending overlay before retrying.
-
-Batch cancellation stops between groups of five photos. Completed files remain saved and can be undone. A batch is not a cross-file database transaction; failures are reported per photo.
-
-## Image editing
-
-Double-click a photo. The inspector then displays adjustment controls. Draw crop rectangles on the preview, choose a fixed ratio or enter a custom width:height ratio, and use the straighten slider. Hold **Before** to compare with the original.
-
-Recipes are stored in the vault's plugin data. They are not digiKam editing-history recipes. **Export copy** renders an 8-bit sRGB PNG into the configured vault folder, preserves photo metadata when possible, resets orientation/dimension metadata, and removes stale face-region geometry. Original image pixels are never overwritten by the editor.
-
-Export names are made unique. Exports are not automatically inserted into digiKam's database: put the export folder in a digiKam collection and rescan if you want them cataloged.
-
-JPEG, PNG, WebP, and browser-decodable AVIF/GIF can be previewed directly. Other formats use an available embedded JPEG preview via ExifTool. Full RAW development is not implemented; export from embedded previews is disabled. Editing exports are limited to 60 megapixels. HDR / high-bit-depth editing is not part of this release.
-
-“I’m Feeling Lucky” applies a conservative histogram-based automatic levels adjustment with a strength control. It does not upload images or use a remote AI service.
+Full RAW development, HDR, and high-bit-depth editing are not included. Some formats use embedded JPEG previews; export from a RAW embedded preview is disabled. Batch automatic levels has its own recipe undo, separate from metadata undo.
 
 ## Data and privacy
 
-- No accounts, analytics, telemetry, network requests, or cloud services.
-- Accesses files outside the vault when you choose an external photo collection, digiKam database, helper executable, or export destination. Reads the chosen database, collection files, and optionally digiKam's local configuration; writes only requested metadata, file operations, and exports there.
-- Writes requested metadata/sidecars, local indexes and journals, adjustment recipes, photo notes, and exported images. Explicit Cut/Paste, Rename, and Delete actions also move, copy, rename, or trash the selected photo files and their sidecars.
-- Python and ExifTool are executed as local child processes with argument arrays; shell interpolation is not used.
-- Settings and recipes use Obsidian's plugin data storage. Journal files and backups are stored under the plugin folder's `local-data` directory. Backups may contain entire original images in embedded mode. Include this directory in your backup policy and consider its size if you sync plugin folders.
-- Each machine may need different executable paths and collection mappings. Multi-machine simultaneous writing is not supported. Do not sync a live SQLite catalog as a substitute for a database server.
-- Uninstalling the plugin removes access to its local undo history; committed metadata remains in the photos/sidecars. Save `local-data` elsewhere if you need to retain backups.
+- No analytics, telemetry, cloud uploads, or plugin network requests.
+- Local filesystem access covers the photo folder, helper executables, and chosen export destinations, including locations outside the vault.
+- Python and ExifTool run as local child processes with argument arrays, without shell interpolation.
+- Settings and recipes use Obsidian’s plugin storage. Indexes, journals, and backups live under the plugin’s `local-data` folder. Embedded-write backups contain the original image files and can take substantial disk space.
+- Keep the plugin data directory in your backups if you need edit recipes or metadata undo. Removing the plugin does not undo metadata already written to photos.
+- Concurrent writing from multiple machines or Obsidian instances is not supported. Helper and collection paths may differ between computers.
 
-## Development and verification
+## Beta status and upgrading
+
+This is a desktop beta. Automated checks cover macOS, Windows, and Linux; graphical acceptance testing is primarily on macOS. More camera formats, color profiles, accessibility workflows, and cross-platform file dialogs still need testing. See [VALIDATION.md](VALIDATION.md).
+
+Version 0.0.3 removes the former digiKam database connection. Existing folder-library indexes, photo IDs, saved recipes, and undo data are retained. If you previously connected an external database, choose the actual photo folder and scan embedded metadata; database-only tags must first be written to your files using the original application. Old database-specific recipes and undo history are retained locally but are not automatically remapped to a new folder index. Install standalone ExifTool if you were using another application's bundled copy.
+
+## Development and support
 
 ```sh
 npm ci
@@ -138,26 +99,8 @@ npm test
 npm run package
 ```
 
-The build embeds the Python bridge in `main.js`, so the installed plugin needs only `main.js`, `manifest.json`, and `styles.css`. At runtime it extracts the bundled bridge into `local-data/runtime` before launching Python. Python and ExifTool executables remain separate local dependencies.
+Release files are `main.js`, `manifest.json`, and `styles.css`. The Python helper is bundled in `main.js` and extracted locally at runtime. Python and ExifTool remain separate dependencies. Tests use generated images and disposable local indexes. ExifTool tests must run with ExifTool installed before a release.
 
-Tests create disposable PNGs and a digiKam-shaped SQLite catalog. They cover read-only WAL access, hierarchy filtering, paging, labels, metadata preservation, sidecar round trips, stale catalog overlays, recovery, undo conflicts, path restrictions, and the image adjustment math. ExifTool integration tests are skipped when ExifTool is unavailable; release validation must run with it installed.
+Report bugs in [GitHub Issues](https://github.com/Coherence-Wizard/photo-workspace/issues), including OS, Obsidian/plugin version, and error text. Do not upload private photos or databases. Future timeline, faces, map, and richer export tools can use the same photo/query interface; see [ARCHITECTURE.md](ARCHITECTURE.md).
 
-See [VALIDATION.md](VALIDATION.md) for the completed local checks and remaining acceptance tests.
-
-## Planned extensions
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for extension boundaries and [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md) for release validation status. Timeline, map, existing face assignments, RAW development, MariaDB, automatic digiKam synchronization, and editable vault-tag mappings are not included in 0.0.2.
-
-## Upstream references
-
-- [digiKam database](https://docs.digikam.org/en/getting_started/database_intro.html)
-- [digiKam metadata settings](https://docs.digikam.org/en/setup_application/metadata_settings.html)
-- [digiKam metadata synchronizer](https://docs.digikam.org/en/maintenance_tools/maintenance_metadata.html)
-- [ExifTool XMP tags](https://exiftool.org/TagNames/XMP.html)
-- [Obsidian submission requirements](https://docs.obsidian.md/community-directory/submission-requirements-for-plugins)
-
-Independent community project; not affiliated with or endorsed by digiKam or Obsidian.
-
-## Support and license
-
-Report bugs and feature requests in [GitHub Issues](https://github.com/Coherence-Wizard/photo-workspace/issues). Include your operating system, Obsidian/plugin version, source mode, and error text. Do not upload private photos or databases. Photo Workspace is released under the [MIT License](LICENSE).
+Photo Workspace is an independent community project, not an official Obsidian product. Released under the [MIT License](LICENSE).

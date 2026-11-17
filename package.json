@@ -1,7 +1,7 @@
 {
   "name": "photo-workspace",
-  "version": "0.0.2",
-  "description": "Organize, tag, rate, edit, and export photos in Obsidian, with optional digiKam integration.",
+  "version": "0.0.3",
+  "description": "Organize local photos with portable metadata tags, ratings, basic editing, and export in Obsidian.",
   "license": "MIT",
   "scripts": {
     "build": "tsc --noEmit && node scripts/build.mjs",

@@ -41,6 +41,11 @@ class CatalogTests(unittest.TestCase):
         self.require_exiftool()
         return self.call('write', ids=ids or [1], patch=patch, batch='test-batch')
 
+    def test_external_database_settings_cannot_select_a_photo_source(self):
+        settings = {**self.settings, 'photoFolder': '', 'sourceMode': 'digikam'}
+        with self.assertRaisesRegex(ValueError, 'photo folder'):
+            bridge.dispatch({'action': 'catalog', 'settings': settings, 'dataDir': str(self.data)})
+
     def test_counts_deduplicate_ancestors_and_follow_pending_metadata(self):
         conn = sqlite3.connect(self.settings['databasePath'])
         conn.execute('INSERT INTO ImageTags VALUES (1,2)')
@@ -146,7 +151,7 @@ class CatalogTests(unittest.TestCase):
         before = bridge.digest(self.settings['databasePath'])
         self.assertEqual(len(self.call('query', filters={'search': '%'})['photos']), 1)
         self.assertEqual(before, bridge.digest(self.settings['databasePath']))
-        cat = bridge.Catalog({'settings': self.settings, 'dataDir': str(self.data)})
+        cat = bridge.Catalog(bridge.folder_request({'settings': self.settings, 'dataDir': str(self.data)}))
         with self.assertRaises(sqlite3.OperationalError):
             cat.conn.execute('DELETE FROM main.Images')
         cat.conn.close()
@@ -337,7 +342,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('Projects/Art/Paint', self.call('photo', id=1)['tags'])
         self.assertTrue((self.directory / 'Collection/Landscape-01.png').exists())
 
-    def test_folder_mode_without_digikam_database(self):
+    def test_folder_index_rebuilds_from_embedded_metadata(self):
         self.require_exiftool()
         self.settings.update(sourceMode='folder', photoFolder=str(self.directory / 'Collection'), databasePath='', rootMappings={}, writeMode='embedded')
         self.assertEqual(self.call('scan')['count'], 4)

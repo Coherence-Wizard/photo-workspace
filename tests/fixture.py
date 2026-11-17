@@ -1,4 +1,5 @@
-"""Disposable digiKam-shaped catalog and original generated PNGs for integration tests."""
+"""Disposable local photo index and original generated PNGs for integration tests."""
+import hashlib
 import json
 from pathlib import Path
 import sqlite3
@@ -34,19 +35,22 @@ def fixture(directory, count=12):
     directory.mkdir(parents=True, exist_ok=True)
     root = directory / 'Collection'
     root.mkdir(exist_ok=True)
-    db = directory / 'digikam4.db'
+    key = hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:24]
+    db = directory / 'plugin-data' / 'folder-indexes' / (key + '.db')
+    db.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db)
     conn.executescript('''
     CREATE TABLE Settings (keyword TEXT PRIMARY KEY, value TEXT);
-    INSERT INTO Settings VALUES ('DBVersion','17');
+    INSERT INTO Settings VALUES ('DBVersion','Photo Workspace folder index 1');
     CREATE TABLE AlbumRoots (id INTEGER PRIMARY KEY,label TEXT,status INTEGER,type INTEGER,identifier TEXT,specificPath TEXT);
-    CREATE TABLE Albums (id INTEGER PRIMARY KEY,albumRoot INTEGER,relativePath TEXT);
+    CREATE TABLE Albums (id INTEGER PRIMARY KEY,albumRoot INTEGER,relativePath TEXT UNIQUE);
     CREATE TABLE Images (id INTEGER PRIMARY KEY,album INTEGER,name TEXT,status INTEGER,category INTEGER,fileSize INTEGER);
     CREATE TABLE ImageInformation (imageid INTEGER PRIMARY KEY,rating INTEGER,creationDate TEXT,width INTEGER,height INTEGER,format TEXT);
     CREATE TABLE ImageMetadata (imageid INTEGER PRIMARY KEY,model TEXT,lens TEXT);
     CREATE TABLE ImageComments (id INTEGER PRIMARY KEY,imageid INTEGER,type INTEGER,language TEXT,comment TEXT);
     CREATE TABLE ImagePositions (imageid INTEGER PRIMARY KEY,latitudeNumber REAL,longitudeNumber REAL);
-    CREATE TABLE Tags (id INTEGER PRIMARY KEY,pid INTEGER,name TEXT);
+    CREATE TABLE Tags (id INTEGER PRIMARY KEY,pid INTEGER,name TEXT,UNIQUE(pid,name));
+    CREATE TABLE FolderFiles (path TEXT PRIMARY KEY,imageid INTEGER,stamp TEXT);
     CREATE TABLE ImageTags (imageid INTEGER,tagid INTEGER,UNIQUE(imageid,tagid));
     INSERT INTO Albums VALUES (1,1,'/');
     INSERT INTO Tags VALUES (1,0,'_Digikam_Internal_Tags_'),(2,0,'Places'),(3,2,'Oregon'),(4,3,'Coast'),(5,0,'Portfolio'),(6,1,'Color Label Blue'),(7,1,'Pick Label Accepted');
@@ -56,6 +60,7 @@ def fixture(directory, count=12):
         name = f'Landscape-{index:02}.png'
         path = root / name
         png(path, seed=index)
+        conn.execute('INSERT INTO FolderFiles VALUES (?,?,?)', (name, index, 'fixture'))
         conn.execute('INSERT INTO Images VALUES (?,1,?,1,1,?)', (index, name, path.stat().st_size))
         conn.execute('INSERT INTO ImageInformation VALUES (?,?,?,?,?,?)', (index, index % 6, f'2026-10-{index:02}T10:30:00', 640, 420, 'PNG'))
         conn.execute('INSERT INTO ImageMetadata VALUES (?,?,?)', (index, 'Demo camera', '35mm'))
@@ -65,7 +70,7 @@ def fixture(directory, count=12):
             conn.executemany('INSERT INTO ImageTags VALUES (?,?)', [(index, 6), (index, 7)])
     conn.commit()
     conn.close()
-    return {'databasePath': str(db), 'writesEnabled': True, 'writeMode': 'sidecar', 'sidecarNaming': 'full', 'rootMappings': {'1': str(root)}}
+    return {'databasePath': str(db), 'photoFolder': str(root), 'writesEnabled': True, 'writeMode': 'sidecar', 'sidecarNaming': 'full', 'rootMappings': {'1': str(root)}}
 
 
 if __name__ == '__main__':

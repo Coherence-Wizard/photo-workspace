@@ -24,20 +24,19 @@ export interface Filters {
 export interface Recipe {
   exposure: number; contrast: number; highlights: number; shadows: number;
   temperature: number; tint: number; saturation: number; vibrance: number;
-  black: number; white: number; gamma: number; angle: number;
+  black: number; white: number; gamma: number; angle: number; quarterTurns?: number;
   crop: { x: number; y: number; width: number; height: number };
   cropRatio: string; auto: number;
 }
 export const DEFAULT_RECIPE: Recipe = {
   exposure: 0, contrast: 0, highlights: 0, shadows: 0,
   temperature: 0, tint: 0, saturation: 0, vibrance: 0,
-  black: 0, white: 255, gamma: 1, angle: 0,
+  black: 0, white: 255, gamma: 1, angle: 0, quarterTurns: 0,
   crop: { x: 0, y: 0, width: 1, height: 1 }, cropRatio: 'free', auto: 0,
 };
 export interface Settings {
-  sourceMode: 'digikam' | 'folder'; photoFolder: string;
-  databasePath: string; pythonPath: string; exiftoolPath: string;
-  rootMappings: Record<string, string>; writesEnabled: boolean;
+  photoFolder: string; pythonPath: string; exiftoolPath: string;
+  writesEnabled: boolean;
   writeMode: 'sidecar' | 'embedded'; sidecarNaming: 'full' | 'stem';
   includeSubfolders: boolean;
   thumbnailSize: number; savedFilters: { name: string; filters: Filters }[];
@@ -45,8 +44,7 @@ export interface Settings {
   recipes: Record<string, Recipe>; exportFolder: string; customTags: Record<string, string[]>;
 }
 export const DEFAULT_SETTINGS: Settings = {
-  sourceMode: 'digikam', photoFolder: '',
-  databasePath: '', pythonPath: '', exiftoolPath: '', rootMappings: {}, writesEnabled: false,
+  photoFolder: '', pythonPath: '', exiftoolPath: '', writesEnabled: false,
   includeSubfolders: true, writeMode: 'embedded', sidecarNaming: 'full', thumbnailSize: 180,
   savedFilters: [], recipes: {}, exportFolder: 'Photo exports', customTags: {},
 };
@@ -70,3 +68,11 @@ export function parsePhotoTags(value: string): string[] {
 }
 
 export interface TagChange { from: string; to: string | null; descendants: boolean; fromTags?: string[]; }
+
+export function rotateRecipe(recipe: Recipe): Recipe {
+  const { x, y, width, height } = recipe.crop;
+  const numericRatio = Number(recipe.cropRatio);
+  return { ...recipe, quarterTurns: ((recipe.quarterTurns ?? 0) + 1) % 4,
+    crop: { x: Math.max(0, 1 - y - height), y: x, width: height, height: width },
+    cropRatio: numericRatio > 0 ? String(1 / numericRatio) : recipe.cropRatio };
+}

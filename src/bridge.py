@@ -1,11 +1,10 @@
-"""Local, stdlib-only digiKam bridge. The source catalog is always opened mode=ro.
+"""Local photo metadata helper. Browsing opens the rebuildable index mode=ro.
 
 One JSON request on stdin, one JSON response on stdout. No shell execution.
-The write journal lives in the plugin's local data directory, never in digiKam.
+The index and undo journal live in the plugin's local data directory.
 """
 import base64
 from contextlib import closing
-import glob
 import hashlib
 import json
 import os
@@ -51,11 +50,6 @@ def digest(path):
 def exiftool_path(configured=''):
     candidates = [configured] if configured else []
     candidates += [shutil.which('exiftool'), '/opt/homebrew/bin/exiftool', '/usr/local/bin/exiftool']
-    if sys.platform == 'darwin':
-        candidates += sorted(glob.glob('/Applications/digiKam.org/digikam.app/Contents/bin/Image-ExifTool-*/exiftool'), reverse=True)
-    if sys.platform == 'win32':
-        for root in [os.environ.get('ProgramFiles', ''), os.environ.get('LOCALAPPDATA', '')]:
-            candidates += [str(Path(root) / 'digiKam' / 'exiftool.exe')]
     for candidate in candidates:
         if candidate and Path(candidate).is_file():
             return str(Path(candidate).resolve())
@@ -134,7 +128,7 @@ PHOTO_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.tif', '.tiff', '.webp', '.avif', 
 
 
 def folder_request(request, scan=False):
-    """Index user-selected photos locally. This database belongs to this plugin, not digiKam."""
+    """Index user-selected photos locally. This rebuildable index belongs to the plugin."""
     settings = dict(request.get('settings', {}))
     root = Path(settings.get('photoFolder', '')).expanduser().resolve()
     if not settings.get('photoFolder') or not root.is_dir():
@@ -244,23 +238,22 @@ def folder_request(request, scan=False):
             atomic_json(directory / (key + '.scan.json'), report)
         finally:
             conn.close()
-    settings.update(databasePath=str(db), rootMappings={'1': str(root)})
-    return {**request, 'settings': settings, 'scanReport': report}
+    return {**request, 'settings': settings, 'indexPath': str(db), 'scanReport': report}
 
 
 class Catalog:
     def __init__(self, request):
         self.request = request
         self.settings = request.get('settings', {})
-        self.db = Path(self.settings.get('databasePath', '')).expanduser().resolve()
+        self.db = Path(request['indexPath']).resolve()
         if not self.db.is_file():
-            raise ValueError('Choose an existing digiKam SQLite catalog (digikam4.db) in settings.')
+            raise ValueError('The local photo index is missing. Scan your photo folder in settings.')
         self.conn = sqlite3.connect(self.db.as_uri() + '?mode=ro', uri=True, timeout=5)
         self.conn.row_factory = sqlite3.Row
         required = {'Images', 'Albums', 'AlbumRoots', 'Tags', 'ImageTags', 'ImageInformation', 'Settings'}
         tables = {r[0] for r in self.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not required.issubset(tables):
-            raise ValueError('This file is not a supported digiKam core catalog. Choose digikam4.db, not a thumbnail database.')
+            raise ValueError('The local photo index is incompatible. Restore its backup or rebuild it from the photo folder.')
         self.tables = tables
         self.roots = [dict(r) for r in self.conn.execute('SELECT id,label,status,type,identifier,specificPath FROM AlbumRoots')]
         identity = str(self.db) + json.dumps([(r['id'], r['identifier'], r['specificPath']) for r in self.roots])
@@ -288,7 +281,7 @@ class Catalog:
                 t = self.tag_rows[current]
                 parts.insert(0, t['name'])
                 current = t['pid']
-            if parts and parts[0] == '_Digikam_Internal_Tags_':
+            if parts and parts[0] in ['_Photo_Workspace_Labels_', '_Digikam_Internal_Tags_']:
                 self.internal[row['name']] = tid
             elif parts:
                 self.tags[tid] = '/'.join(parts)
@@ -297,24 +290,20 @@ class Catalog:
         for iid, value in self.pending.items():
             m = value['metadata']
             self.conn.execute('INSERT INTO overlay VALUES (?,?,?,?,?,?,?)', (int(iid), m['rating'], m['color'], m['pick'], m.get('title', ''), m.get('caption', ''), json.dumps(m['tags'])))
+        # Finish the TEMP overlay transaction so a file move can update the index
+        # through its separate writer even when metadata undo records exist.
+        self.conn.commit()
         self.conn.execute('PRAGMA query_only=ON')
 
     def root_path(self, root):
-        mapped = self.settings.get('rootMappings', {}).get(str(root['id']))
-        if mapped:
-            return Path(mapped).expanduser().resolve()
-        path = Path(root['specificPath'])
-        # Only a hard-wired collection may be inferred from its absolute path.
-        if root['type'] == 1 and path.is_absolute() and path.is_dir():
-            return path.resolve()
-        return None
+        return Path(self.settings['photoFolder']).expanduser().resolve()
 
     def path(self, row, require=False):
         root = next((r for r in self.roots if r['id'] == row['rootId']), None)
         base = self.root_path(root) if root else None
         if base is None:
             if require:
-                raise ValueError('Map this collection to its folder in Photo Workspace settings.')
+                raise ValueError('Choose an available photo folder in Photo Workspace settings.')
             return None
         override = self.locations.get(str(row['id']))
         if override:
@@ -475,8 +464,6 @@ class Catalog:
             row['path'] = str(resolved) if resolved else ''
             row['online'] = bool(resolved and resolved.is_dir())
             row['suggestions'] = []
-            if not resolved and sys.platform == 'darwin':
-                row['suggestions'] = [str(p) for p in Path('/Volumes').glob('*/' + root['specificPath'].lstrip('/')) if p.is_dir()]
             roots.append(row)
         tag_counts, folder_counts = {}, {}
         visible = {r['id']: r for r in self.conn.execute("SELECT i.id,a.albumRoot AS rootId,a.relativePath FROM Images i JOIN Albums a ON a.id=i.album WHERE i.status=1 AND i.category=1") if self.locations.get(str(r['id']), '') is not None}
@@ -540,7 +527,7 @@ class Catalog:
             raise ValueError('Metadata writes through a sidecar symlink are not supported.')
         previous = self.pending.get(str(image_id))
         if previous and str(target) != previous['target']:
-            raise ValueError('This photo has pending metadata in a different write destination. Undo that batch, or import it into digiKam and release the pending overlay, before changing destinations.')
+            raise ValueError('This photo has pending metadata in a different write destination. Undo that batch before changing destinations.')
         if previous and digest(target) != previous['hash']:
             raise ValueError('Metadata changed outside Photo Workspace. Resolve the pending change in settings before writing again.')
         before_hash = digest(target)
@@ -585,7 +572,7 @@ class Catalog:
                     args += ['-XMP-digiKam:TagsList+=' + tag, '-XMP-lr:HierarchicalSubject+=' + tag.replace('/', '|')]
                 for tag in sorted({t.split('/')[-1] for t in metadata['tags']}):
                     args.append('-XMP-dc:Subject+=' + tag)
-            # A new sidecar must contain baseline catalog fields because digiKam may prefer it over embedded metadata.
+            # A new sidecar must contain baseline catalog fields because applications may prefer it over embedded metadata.
             fields = {'rating': ['XMP-xmp:Rating', 'XMP-acdsee:Rating'], 'color': ['XMP-digiKam:ColorLabel'], 'pick': ['XMP-digiKam:PickLabel'], 'title': ['XMP-dc:Title-x-default'], 'caption': ['XMP-dc:Description-x-default']}
             for key, names in fields.items():
                 if key in patch or not target.exists():
@@ -606,7 +593,7 @@ class Catalog:
             atomic_json(record_path, record)
             self.pending[str(image_id)] = {'metadata': metadata, 'target': str(target), 'hash': after_hash, 'operation': op_id}
             atomic_json(self.state_path, self.pending)
-            return {'id': image_id, 'metadata': metadata, 'operation': op_id, 'status': 'Metadata saved; digiKam refresh pending'}
+            return {'id': image_id, 'metadata': metadata, 'operation': op_id, 'status': 'Metadata saved to file'}
         finally:
             if stage.exists():
                 stage.unlink()
@@ -636,14 +623,13 @@ class Catalog:
         atomic_json(self.state_path, self.pending)
         self.locations[str(iid)] = str(pairs[0][1])
         atomic_json(self.locations_path, self.locations)
-        if self.settings.get('sourceMode') == 'folder':
-            root = self.root_path(self.roots[0]); source, destination = pairs[0]
-            with closing(sqlite3.connect(self.db, timeout=30)) as index, index:
-                album = '/' + destination.parent.relative_to(root).as_posix().removeprefix('.')
-                index.execute('INSERT OR IGNORE INTO Albums(albumRoot,relativePath) VALUES (1,?)', (album,))
-                aid = index.execute('SELECT id FROM Albums WHERE relativePath=?', (album,)).fetchone()[0]
-                index.execute('UPDATE Images SET album=?,name=? WHERE id=?', (aid, destination.name, iid))
-                index.execute('UPDATE FolderFiles SET path=? WHERE imageid=?', (destination.relative_to(root).as_posix(), iid))
+        root = self.root_path(self.roots[0]); source, destination = pairs[0]
+        with closing(sqlite3.connect(self.db, timeout=30)) as index, index:
+            album = '/' + destination.parent.relative_to(root).as_posix().removeprefix('.')
+            index.execute('INSERT OR IGNORE INTO Albums(albumRoot,relativePath) VALUES (1,?)', (album,))
+            aid = index.execute('SELECT id FROM Albums WHERE relativePath=?', (album,)).fetchone()[0]
+            index.execute('UPDATE Images SET album=?,name=? WHERE id=?', (aid, destination.name, iid))
+            index.execute('UPDATE FolderFiles SET path=? WHERE imageid=?', (destination.relative_to(root).as_posix(), iid))
 
     def file_operation(self, iid, operation, destination):
         photo = self.photo(iid)
@@ -652,12 +638,12 @@ class Catalog:
         target = Path(destination).expanduser().resolve()
         roots = [self.root_path(root) for root in self.roots]
         if not any(root and target.is_relative_to(root) for root in roots):
-            raise ValueError('Choose a destination inside a mapped photo collection. In folder mode, this is the selected photo folder.')
+            raise ValueError('Choose a destination inside the selected photo folder.')
         if not target.parent.is_dir(): raise ValueError('The destination folder does not exist.')
         if target.suffix.lower() != source.suffix.lower(): raise ValueError('Keep the original file extension when renaming a photo.')
         pairs = [(source, target)] + [(path, Path(str(target) + '.xmp') if path.name == source.name + '.xmp' else target.with_suffix('.xmp')) for path in files[1:]]
         if any(dest.exists() for _, dest in pairs): raise ValueError('A file already exists at that destination. Choose another name.')
-        if self.settings.get('sourceMode') == 'folder' and operation == 'move':
+        if operation == 'move':
             collision = self.conn.execute('SELECT imageid FROM FolderFiles WHERE path=?', (target.relative_to(roots[0]).as_posix(),)).fetchone()
             if collision and collision[0] != iid: raise ValueError('This filename belongs to another indexed photo. Choose a different name.')
         previous = self.pending.get(str(iid))
@@ -764,15 +750,14 @@ def dispatch(request):
         except ValueError as error:
             result['exiftoolError'] = str(error)
         return result
-    if request.get('settings', {}).get('sourceMode') == 'folder':
-        prepared = folder_request(request)
-        if action == 'scan':
-            recovery = Catalog(prepared)
-            try: recovery.recover_file_operations()
-            finally: recovery.conn.close()
-            request = prepared if prepared.get('scanReport') is not None else folder_request(request, scan=True)
-        else:
-            request = prepared
+    prepared = folder_request(request)
+    if action == 'scan':
+        recovery = Catalog(prepared)
+        try: recovery.recover_file_operations()
+        finally: recovery.conn.close()
+        request = prepared if prepared.get('scanReport') is not None else folder_request(request, scan=True)
+    else:
+        request = prepared
     cat = Catalog(request)
     try:
         if action in ['catalog', 'scan']:

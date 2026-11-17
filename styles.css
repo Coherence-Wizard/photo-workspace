@@ -113,3 +113,15 @@
 .pw-tag-row.is-selected { background: var(--background-modifier-active-hover); border-radius: 4px; }
 .pw-folder-divider { grid-column: 1 / -1; margin: 16px 0 6px; padding: 10px 4px; border-bottom: 1px solid var(--background-modifier-border); overflow-wrap: anywhere; font-size: var(--font-ui-medium); }
 .pw-view [hidden], .pw-connection-modal [hidden], .modal .setting-item[hidden] { display: none !important; }
+
+.pw-crop-overlay { pointer-events: auto; cursor: move; touch-action: none; box-sizing: border-box; }
+.pw-crop-overlay:focus-visible, .pw-crop-handle:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 3px; }
+.pw-crop-overlay .pw-crop-handle { position: absolute; width: 14px; height: 14px; min-width: 0; padding: 0; border: 1px solid #222; border-radius: 2px; background: #fff; transform: translate(-50%, -50%); }
+.pw-crop-nw { left: 0; top: 0; cursor: nwse-resize; }
+.pw-crop-n { left: 50%; top: 0; cursor: ns-resize; }
+.pw-crop-ne { left: 100%; top: 0; cursor: nesw-resize; }
+.pw-crop-e { left: 100%; top: 50%; cursor: ew-resize; }
+.pw-crop-se { left: 100%; top: 100%; cursor: nwse-resize; }
+.pw-crop-s { left: 50%; top: 100%; cursor: ns-resize; }
+.pw-crop-sw { left: 0; top: 100%; cursor: nesw-resize; }
+.pw-crop-w { left: 0; top: 50%; cursor: ew-resize; }

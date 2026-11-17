@@ -1,14 +1,17 @@
 # Release validation
 
-Version 0.0.2 is the first public release; earlier version numbers were local development builds.
+Version 0.0.3 continues the desktop beta with keyboard tag submission, adjustable crop handles, clockwise rotation, and folder-only photo libraries.
 
-- TypeScript checking and production bundle build.
-- Python integration tests with ExifTool: metadata read/write, read-only catalog protection, partial scan errors, recovery, undo, file operations, batch tag deletion, and direct/recursive folder browsing.
-- 27 Python and 9 TypeScript tests pass locally with ExifTool enabled. TypeScript coverage includes image math, selection, hierarchy parsing, proportional resize, and conditional export settings.
-- GitHub Actions runs builds and integration tests on Windows, Linux, and macOS; consult the run for the exact commit status.
-- macOS live checks cover the photo workspace, grid/preview navigation, metadata tools, and export controls.
-- A large removable-drive collection (over 160,000 image files) was scanned; unreadable files are reported without discarding valid results.
+Automated tests use disposable generated PNGs and a plugin-owned SQLite index. ExifTool must be installed; integration tests are skipped otherwise.
 
-Windows/Linux graphical interaction and wider RAW/color-management acceptance remain open. CI builds and integration tests do not certify every desktop workflow or camera format. Only digiKam SQLite schema 17 has been tested directly; other schemas are validated for required tables but are not certified.
+- Metadata read/write, nested tags, ratings, labels, Unicode and multiline transport.
+- Partial scan errors, rebuildable indexes, query paging and folder hierarchy.
+- Batch tag rename/delete, recovery, undo, conflicts, file moves and copies.
+- Keyboard tag selection, comma-separated entry, empty-field Enter submission, IME guards.
+- Crop movement and all eight resize handles at image boundaries, fixed ratios, and reverse-direction drawing.
+- Rotation dimensions, four-turn restoration, existing crop transformation, and unchanged adjustment settings.
+- Export dialog visibility and proportional resize.
 
-See README.md for external helper requirements, metadata behavior, and privacy disclosures.
+CI checks Windows, macOS, and Linux. Live graphical checks are primarily on macOS; CI does not certify every native file dialog, camera format, or color profile. RAW development, high-bit-depth editing, multi-instance writing, and comprehensive screen-reader acceptance remain outside this beta's validated scope.
+
+The previous folder index layout and key derivation are retained, preserving existing IDs and recipe/undo references. Old external-database settings no longer select a connection. Embedded metadata and compatibility namespaces remain readable by other applications.

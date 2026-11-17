@@ -1,7 +1,8 @@
 import { ItemView, WorkspaceLeaf, Notice, Setting, normalizePath, FileSystemAdapter, Menu, TFolder, TFile, setIcon } from 'obsidian';
 import { extname, join, dirname, relative, basename } from 'node:path';
 import PhotoWorkspace, { TextPrompt } from './main';
-import { Photo, Filters, Recipe, COLORS, PICKS, freshRecipe, toggleSelection, MetadataPatch, parsePhotoTags } from './types';
+import { Photo, Filters, Recipe, COLORS, PICKS, freshRecipe, rotateRecipe, toggleSelection, MetadataPatch, parsePhotoTags } from './types';
+import { moveCrop, resizeCrop, drawCrop, fitCropRatio, type Handle } from './crop';
 import { revealPhoto, openPhotoDefault, openPhotoWith } from './system';
 import { ThumbnailCache, decodePhoto, renderPhoto, histogram, constrainCrop } from './image-engine';
 
@@ -60,7 +61,7 @@ export class TagsView extends PhotoView {
     const tree = upper.createDiv('pw-tag-tree');
     const renderTree = () => {
       tree.empty(); const catalog = this.plugin.catalog;
-      if (!catalog) { empty(tree, 'Connect a collection', 'Choose a photo folder or digiKam database to see its tags.'); button(tree, 'Connect', () => this.plugin.openSettings()); return; }
+      if (!catalog) { empty(tree, 'Connect a collection', 'Choose a photo folder to see its tags.'); button(tree, 'Connect', () => this.plugin.openSettings()); return; }
       if (this.tagCatalog !== catalog.key) { this.selectedTags.clear(); this.tagAnchor = null; this.tagCatalog = catalog.key; }
       const all = button(tree, 'All photos', () => { if (this.plugin.activeBrowser) { this.selectedTags.clear(); this.plugin.activeBrowser.filters = { sort: this.plugin.activeBrowser.filters.sort, ascending: this.plugin.activeBrowser.filters.ascending }; renderTree(); void this.plugin.activeBrowser.reload(); } }); all.addClass('pw-tree-all');
       const paths = [...new Set([...catalog.tags, ...(this.plugin.settings.customTags[catalog.key] ?? [])])];
@@ -217,7 +218,7 @@ export class BrowserView extends PhotoView {
   recipe = freshRecipe();
   mode: 'grid' | 'preview' = 'grid';
   cropMode = false;
-  straightenMode = false;
+  cropDraft: Recipe['crop'] | null = null;
   embeddedPreview = false;
   private bitmap: ImageBitmap | null = null;
   private thumbnails!: ThumbnailCache;
@@ -260,12 +261,13 @@ export class BrowserView extends PhotoView {
       if (event.defaultPrevented || (event.target as HTMLElement).closest('input,textarea,select,[contenteditable=true]') || event.altKey) return;
       if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.repeat && /^[1-5]$/.test(event.key)) { event.preventDefault(); void this.plugin.apply({ rating: Number(event.key) }); return; }
       if (!event.metaKey && !event.ctrlKey && this.mode === 'preview' && event.key.toLowerCase() === 't') { event.preventDefault(); this.plugin.tagPrompt(); return; }
+      if (this.cropMode && (event.key === 'Escape' || event.key === 'Enter')) { event.preventDefault(); this.finishCrop(event.key === 'Enter'); return; }
       if (event.key === 'Escape' && this.mode === 'preview') { event.preventDefault(); this.showGrid(); }
       if (event.key === 'Enter' && this.mode === 'grid') { const photo = this.photos.find(p => p.id === [...this.selected][0]); if (photo) void this.openPhoto(photo); }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a' && this.mode === 'grid') { event.preventDefault(); this.selected = new Set(this.photos.map(p => p.id)); this.selectionChanged(); }
       if (!event.metaKey && !event.ctrlKey && this.mode === 'preview' && ['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); void this.navigate(event.key === 'ArrowLeft' ? -1 : 1); }
     });
-    this.renderToolbar(); this.renderFooter(); if (this.plugin.catalog) await this.reload(); else empty(this.grid, 'Your photos, connected', 'Open connection settings to choose a photo folder or digiKam catalog.');
+    this.renderToolbar(); this.renderFooter(); if (this.plugin.catalog) await this.reload(); else empty(this.grid, 'Your photos, connected', 'Open connection settings to choose a photo folder.');
   }
   async onClose(): Promise<void> {
     this.pageObserver?.disconnect(); this.requestId++; this.previewId++; this.cancelDrag?.(); this.observer?.disconnect(); this.thumbnails.dispose(); this.bitmap?.close();
@@ -283,6 +285,7 @@ export class BrowserView extends PhotoView {
       const zoomLabel = this.toolbar.createSpan({ cls: 'pw-zoom-label' });
       const syncZoom = () => { zoom.value = String(this.zoom === 'fit' ? 100 : this.zoom * 100); zoomLabel.setText(this.zoom === 'fit' ? 'Fit' : Math.round(this.zoom * 100) + '%'); };
       zoom.addEventListener('input', () => { this.setZoom(Number(zoom.value) / 100); syncZoom(); });
+      button(this.toolbar, 'Rotate', () => { void this.rotateSelected(); });
       button(this.toolbar, 'Fit', () => { this.setZoom('fit'); syncZoom(); });
       button(this.toolbar, '100%', () => { this.setZoom(1); syncZoom(); }); syncZoom();
       const compare = button(this.toolbar, 'Before', () => {}, 'Hold to view the original');
@@ -322,7 +325,7 @@ export class BrowserView extends PhotoView {
     this.observer?.disconnect(); this.photos = []; this.selected.clear(); this.current = null; this.mode = 'grid';
     this.previewId++; this.bitmap?.close(); this.bitmap = null; this.preview.hidden = true; this.grid.hidden = false; this.grid.empty();
     this.renderToolbar(); this.loading = false; this.hasMore = false; this.plugin.emit('selection');
-    if (!this.plugin.catalog) { empty(this.grid, 'Connect a collection', 'Choose a photo folder or digiKam SQLite database in connection settings.'); this.renderFooter(); return; }
+    if (!this.plugin.catalog) { empty(this.grid, 'Connect a collection', 'Choose a photo folder in settings.'); this.renderFooter(); return; }
     this.grid.createDiv({ cls: 'pw-loading', text: 'Loading photos…' });
     await this.loadMore(token, true);
     if (preserveSelection && token === this.requestId) {
@@ -385,7 +388,7 @@ export class BrowserView extends PhotoView {
       const badges = tile.createDiv('pw-badges'); badges.createSpan({ cls: 'pw-stars', text: photo.rating > 0 ? '★'.repeat(Math.min(5, photo.rating)) : 'Unrated' });
       if (photo.color) { const dot = badges.createSpan({ cls: 'pw-color-dot', attr: { title: COLORS[photo.color] } }); dot.style.setProperty('--pw-label-color', colorHex[photo.color]); }
       if (photo.pick) badges.createSpan({ text: PICKS[photo.pick] });
-      if (photo.pending) badges.createSpan({ text: '↻', attr: { title: 'Metadata saved; digiKam refresh pending' } });
+      if (photo.pending) badges.createSpan({ text: '↻', attr: { title: 'Metadata saved to file' } });
       let suppressClick = false;
       tile.addEventListener('click', event => { if (suppressClick) { suppressClick = false; return; } this.selected = toggleSelection(this.selected, this.photos.map(p => p.id), photo.id, this.anchor, event.shiftKey, event.metaKey || event.ctrlKey); if (!event.shiftKey) this.anchor = photo.id; this.current = this.selected.has(photo.id) ? photo : this.photos.find(p => this.selected.has(p.id)) ?? null; this.selectionChanged(); });
       tile.addEventListener('contextmenu', event => { if (!this.selected.has(photo.id)) { this.selected = new Set([photo.id]); this.current = photo; this.selectionChanged(); } this.photoMenu(event, photo); });
@@ -453,7 +456,7 @@ export class BrowserView extends PhotoView {
     const tile = this.grid.querySelector<HTMLElement>(`.pw-tile[data-id="${id}"]`);
     if (tile && photo) {
       const badges = tile.querySelector<HTMLElement>('.pw-badges');
-      if (badges) { badges.empty(); badges.createSpan({ text: photo.rating > 0 ? '★'.repeat(Math.min(5, photo.rating)) : 'Unrated' }); if (photo.color) badges.createSpan({ text: COLORS[photo.color] }); if (photo.pick) badges.createSpan({ text: PICKS[photo.pick] }); badges.createSpan({ text: '↻', attr: { title: 'digiKam refresh pending' } }); }
+      if (badges) { badges.empty(); badges.createSpan({ text: photo.rating > 0 ? '★'.repeat(Math.min(5, photo.rating)) : 'Unrated' }); if (photo.color) badges.createSpan({ text: COLORS[photo.color] }); if (photo.pick) badges.createSpan({ text: PICKS[photo.pick] }); badges.createSpan({ text: '↻', attr: { title: 'Metadata saved to file' } }); }
     }
   }
   async openPhoto(photo: Photo): Promise<void> {
@@ -462,7 +465,7 @@ export class BrowserView extends PhotoView {
     if (this.mode === 'grid') this.scrollTop = this.grid.scrollTop;
     this.mode = 'preview'; this.pageObserver?.disconnect(); this.contentEl.focus({ preventScroll: true }); this.current = photo; this.selected = new Set([photo.id]); this.grid.hidden = true; this.preview.hidden = false;
     this.recipeCatalog = this.plugin.catalog?.key ?? '';
-    this.cropMode = false; this.straightenMode = false; this.zoom = 'fit'; this.recipe = structuredClone(this.plugin.settings.recipes[this.plugin.recipeKey(photo.id)] ?? freshRecipe());
+    this.cropMode = false; this.cropDraft = null; this.zoom = 'fit'; this.recipe = structuredClone(this.plugin.settings.recipes[this.plugin.recipeKey(photo.id)] ?? freshRecipe());
     this.history = []; this.future = []; this.bitmap?.close(); this.bitmap = null; this.preview.empty(); empty(this.preview, 'Opening photo…', photo.name);
     this.renderToolbar(); this.renderFooter(); this.plugin.emit('selection');
     try {
@@ -497,6 +500,16 @@ export class BrowserView extends PhotoView {
   }
   undoRecipe(): void { const previous = this.history.pop(); if (!previous) return; this.future.push(structuredClone(this.recipe)); this.commitRecipe(previous, false); this.plugin.emit('selection'); }
   redoRecipe(): void { const next = this.future.pop(); if (!next) return; this.history.push(structuredClone(this.recipe)); this.commitRecipe(next, false); this.plugin.emit('selection'); }
+  async rotateSelected(): Promise<void> {
+    if (this.mode === 'preview') {
+      this.cropMode = false; this.cropDraft = null;
+      this.commitRecipe(rotateRecipe(this.recipe)); this.plugin.emit('selection');
+    } else {
+      const catalog = this.plugin.catalog?.key;
+      for (const id of this.selected) await this.plugin.saveRecipe(id, rotateRecipe(this.plugin.settings.recipes[this.plugin.recipeKey(id)] ?? freshRecipe()), catalog);
+      await this.reload(true);
+    }
+  }
   private photoMenu(event: MouseEvent, photo: Photo): void {
     event.preventDefault();
     const invoke = (action: () => Promise<void>) => { void action().catch(error => this.plugin.fail(error)); };
@@ -513,6 +526,7 @@ export class BrowserView extends PhotoView {
       .addSeparator()
       .addItem(i => i.setTitle('I’m Feeling Lucky').setIcon('wand-sparkles').onClick(() => { if (this.mode === 'preview') { this.commitRecipe({ ...this.recipe, auto: 100 }); this.plugin.emit('selection'); } else void this.plugin.luckyBatch(); }))
       .addItem(i => i.setTitle('Export photos…').setIcon('download').onClick(() => this.plugin.exportPhotos()))
+      .addItem(i => i.setTitle('Rotate').setIcon('rotate-cw').onClick(() => { void this.rotateSelected(); }))
       .addItem(i => i.setTitle('Add Tag').setIcon('tags').onClick(() => this.plugin.tagPrompt()))
       .addItem(i => i.setTitle('Create photo note').setIcon('file-plus').onClick(() => invoke(() => this.plugin.createPhotoNote(photo))))
       .addItem(i => i.setTitle(this.mode === 'preview' ? 'Return to thumbnails' : 'Open preview').setIcon('image').onClick(() => { if (this.mode === 'preview') this.showGrid(); else void this.openPhoto(photo); }))
@@ -545,7 +559,7 @@ export class BrowserView extends PhotoView {
     canvas.addEventListener('contextmenu', event => { if (this.current) this.photoMenu(event, this.current); });
     const frame = this.preview.createDiv('pw-image-frame'); frame.appendChild(canvas); canvas.addClass('pw-image-canvas');
     if (this.zoom !== 'fit') { canvas.style.width = Number(canvas.dataset.fullWidth) * this.zoom + 'px'; canvas.style.height = Number(canvas.dataset.fullHeight) * this.zoom + 'px'; }
-    if (!this.cropMode && !this.straightenMode) {
+    if (!this.cropMode) {
       let pan: { x: number; y: number; left: number; top: number } | null = null;
       canvas.addClass('pw-pannable');
       canvas.addEventListener('pointerdown', event => { if (this.zoom === 'fit') return; event.preventDefault(); pan = { x: event.clientX, y: event.clientY, left: this.preview.scrollLeft, top: this.preview.scrollTop }; canvas.setPointerCapture(event.pointerId); });
@@ -553,33 +567,51 @@ export class BrowserView extends PhotoView {
       canvas.addEventListener('pointerup', () => { pan = null; });
       canvas.addEventListener('pointercancel', () => { pan = null; });
     }
-    if (this.cropMode || this.straightenMode) {
+    if (this.cropMode) {
       frame.addClass('pw-cropping');
-      const overlay = frame.createDiv('pw-crop-overlay');
-      let start: { x: number; y: number } | null = null;
-      const point = (event: PointerEvent) => { const rect = canvas.getBoundingClientRect(); return { x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) }; };
-      const rectangle = (end: { x: number; y: number }) => {
-        let width = Math.abs(end.x - start!.x), height = Math.abs(end.y - start!.y);
-        const ratio = this.recipe.cropRatio === 'original' ? this.bitmap!.width / this.bitmap!.height : Number(this.recipe.cropRatio);
-        if (Number.isFinite(ratio) && ratio > 0) height = width * canvas.width / canvas.height / ratio;
-        let x = Math.min(start!.x, end.x), y = end.y >= start!.y ? start!.y : start!.y - height;
-        x = Math.max(0, x); y = Math.max(0, y);
-        const fit = Math.min(1, (1 - x) / Math.max(width, .001), (1 - y) / Math.max(height, .001)); width *= fit; height *= fit;
-        return constrainCrop(x, y, width, height);
+      const pixelRatio = this.recipe.cropRatio === 'original' ? ((this.recipe.quarterTurns ?? 0) % 2 ? this.bitmap.height / this.bitmap.width : this.bitmap.width / this.bitmap.height) : Number(this.recipe.cropRatio);
+      const ratio = Number.isFinite(pixelRatio) && pixelRatio > 0 ? pixelRatio * canvas.height / canvas.width : 0;
+      this.cropDraft = fitCropRatio(this.cropDraft ?? this.recipe.crop, ratio);
+      const overlay = frame.createDiv('pw-crop-overlay'); overlay.tabIndex = 0; overlay.setAttribute('aria-label', 'Move crop area with arrow keys; Enter applies, Escape cancels');
+      const handles: Handle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+      for (const handle of handles) {
+        const control = overlay.createEl('button', { cls: 'pw-crop-handle pw-crop-' + handle, attr: { 'aria-label': 'Resize crop ' + handle, 'data-handle': handle } });
+        control.addEventListener('keydown', event => adjustKey(event, handle));
+      }
+      const paint = () => { const crop = this.cropDraft!; overlay.style.left = crop.x * 100 + '%'; overlay.style.top = crop.y * 100 + '%'; overlay.style.width = crop.width * 100 + '%'; overlay.style.height = crop.height * 100 + '%'; };
+      const adjustKey = (event: KeyboardEvent, handle?: Handle) => {
+        if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+        event.preventDefault(); event.stopPropagation();
+        const step = event.shiftKey ? 10 : 1, rect = canvas.getBoundingClientRect();
+        const dx = (event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0) / rect.width;
+        const dy = (event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0) / rect.height;
+        this.cropDraft = handle ? resizeCrop(this.cropDraft!, handle, dx, dy, ratio) : moveCrop(this.cropDraft!, dx, dy); paint();
       };
-      frame.addEventListener('pointerdown', event => { start = point(event); frame.setPointerCapture(event.pointerId); overlay.hidden = false; });
+      overlay.addEventListener('keydown', event => { if (event.target === overlay) adjustKey(event); });
+      const point = (event: PointerEvent) => { const rect = canvas.getBoundingClientRect(); return { x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) }; };
+      let drag: { start: { x: number; y: number }; crop: Recipe['crop']; mode: Handle | 'move' | 'draw' } | null = null;
+      frame.addEventListener('pointerdown', event => {
+        if (event.button !== 0) return; event.preventDefault(); event.stopPropagation();
+        const target = event.target as HTMLElement, handle = target.dataset.handle as Handle | undefined;
+        drag = { start: point(event), crop: { ...this.cropDraft! }, mode: handle ?? (overlay.contains(target) ? 'move' : 'draw') };
+        frame.setPointerCapture(event.pointerId); (handle ? target : overlay).focus();
+      });
       frame.addEventListener('pointermove', event => {
-        if (!start) return; const crop = rectangle(point(event));
-        overlay.style.left = crop.x * 100 + '%'; overlay.style.top = crop.y * 100 + '%'; overlay.style.width = crop.width * 100 + '%'; overlay.style.height = crop.height * 100 + '%';
+        if (!drag) return; const end = point(event), dx = end.x - drag.start.x, dy = end.y - drag.start.y;
+        this.cropDraft = drag.mode === 'move' ? moveCrop(drag.crop, dx, dy) : drag.mode === 'draw' ? drawCrop(drag.start, end, ratio) : resizeCrop(drag.crop, drag.mode, dx, dy, ratio); paint();
       });
-      frame.addEventListener('pointerup', event => {
-        if (!start) return; const end = point(event), next = structuredClone(this.recipe);
-        if (this.straightenMode) { let angle = Math.atan2((end.y - start.y) * canvas.height, (end.x - start.x) * canvas.width) * 180 / Math.PI; if (angle > 90) angle -= 180; if (angle < -90) angle += 180; next.angle = Math.max(-15, Math.min(15, next.angle - angle)); }
-        else next.crop = rectangle(end);
-        start = null; this.cropMode = false; this.straightenMode = false; this.commitRecipe(next); this.plugin.emit('selection');
-      });
+      frame.addEventListener('pointerup', event => { drag = null; if (frame.hasPointerCapture(event.pointerId)) frame.releasePointerCapture(event.pointerId); });
+      frame.addEventListener('pointercancel', () => { if (drag) this.cropDraft = drag.crop; drag = null; paint(); });
+      paint();
     }
   }
+  beginCrop(): void { this.cropMode = true; this.cropDraft = { ...this.recipe.crop }; this.renderPreview(); this.plugin.emit('selection'); }
+  finishCrop(apply: boolean): void {
+    const draft = this.cropDraft; this.cropMode = false; this.cropDraft = null;
+    if (apply && draft) this.commitRecipe({ ...this.recipe, crop: draft });
+    this.renderPreview(); this.plugin.emit('selection'); this.contentEl.focus();
+  }
+
   drawHistogram(canvas: HTMLCanvasElement): void {
     if (!this.bitmap) return;
     const sample = renderPhoto(this.bitmap, this.recipe, 300), context = sample.getContext('2d')!;
@@ -656,7 +688,7 @@ export class InspectorView extends PhotoView {
       const current = shared(key);
       new Setting(this.contentEl).setName(name).setDesc(current === 'mixed' ? 'Mixed values' : current || 'Not set').addButton(b => b.setButtonText('Edit').onClick(() => new TextPrompt(this.plugin, `Edit ${name.toLowerCase()}`, `Apply to ${selected.length} selected photo${multiple ? 's' : ''}.`, current === 'mixed' ? '' : current, value => { void this.plugin.apply({ [key]: value }); }).open()));
     }
-    if (selected.some(p => p.pending)) this.contentEl.createEl('p', { cls: 'pw-sync-note', text: this.plugin.settings.sourceMode === 'folder' ? 'Metadata saved to files' : 'Metadata saved · digiKam refresh pending' });
+    if (selected.some(p => p.pending)) this.contentEl.createEl('p', { cls: 'pw-sync-note', text: 'Metadata saved to files' });
     if (!multiple) button(this.contentEl, 'Create photo note', () => { void this.plugin.createPhotoNote(photo).catch(error => this.plugin.fail(error)); });
     if (browser.mode === 'preview' && !multiple) this.editor(browser);
     else if (!multiple) button(this.contentEl, 'Open preview & edit', () => { void browser.openPhoto(photo); });
@@ -694,12 +726,13 @@ export class InspectorView extends PhotoView {
       d.setValue(browser.recipe.cropRatio).onChange(value => browser.commitRecipe({ ...browser.recipe, cropRatio: value }));
     });
     const actions = section.createDiv('pw-actions');
-    button(actions, browser.cropMode ? 'Cancel crop' : 'Draw crop', () => { browser.cropMode = !browser.cropMode; browser.straightenMode = false; browser.renderPreview(); this.render(); });
+    if (browser.cropMode) { button(actions, 'Apply crop', () => browser.finishCrop(true)); button(actions, 'Cancel crop', () => browser.finishCrop(false)); }
+    else button(actions, 'Adjust crop', () => browser.beginCrop());
     button(actions, 'Custom ratio', () => new TextPrompt(this.plugin, 'Custom crop ratio', 'Enter width:height, such as 5:7.', '5:7', value => { const [w, h] = value.split(':').map(Number); if (!(w > 0 && h > 0)) { new Notice('Use a positive width:height ratio.'); return; } browser.commitRecipe({ ...browser.recipe, cropRatio: String(w / h) }); this.render(); }).open());
 
     button(actions, 'Reset crop', () => { browser.commitRecipe({ ...browser.recipe, crop: { x: 0, y: 0, width: 1, height: 1 } }); });
-    if (browser.cropMode) section.createEl('p', { cls: 'pw-hint', text: 'Drag a rectangle across the image to crop. Release to apply.' });
+    if (browser.cropMode) section.createEl('p', { cls: 'pw-hint', text: 'Drag the crop area to move it, or drag its handles to resize. Apply crop (Enter) commits; Escape cancels. Focus a handle and use arrow keys for fine adjustments.' });
     button(section, 'Reset all adjustments', () => { browser.commitRecipe(freshRecipe()); this.render(); });
-    section.createEl('p', { cls: 'pw-hint', text: 'Recipes are saved in this vault. Export creates an sRGB PNG copy; digiKam does not read these adjustment recipes.' });
+    section.createEl('p', { cls: 'pw-hint', text: 'Recipes are saved in this vault. Export creates an sRGB PNG copy. Original image pixels are unchanged.' });
   }
 }

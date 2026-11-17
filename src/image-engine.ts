@@ -56,7 +56,7 @@ export function constrainCrop(x: number, y: number, width: number, height: numbe
 }
 
 export async function decodePhoto(photo: Photo, bridge: Bridge): Promise<{ bitmap: ImageBitmap; embeddedPreview: boolean }> {
-  if (!photo.path) throw new Error('Map this collection to its folder in settings.');
+  if (!photo.path) throw new Error('Choose an available photo folder in settings.');
   const ext = extname(photo.path).toLowerCase();
   if (['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif'].includes(ext)) {
     const info = await stat(photo.path);
@@ -70,15 +70,17 @@ export async function decodePhoto(photo: Photo, bridge: Bridge): Promise<{ bitma
 
 export function renderPhoto(bitmap: ImageBitmap, recipe: Recipe, maxEdge = 1800): HTMLCanvasElement {
   const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
-  const width = Math.max(1, Math.round(bitmap.width * scale)), height = Math.max(1, Math.round(bitmap.height * scale));
+  const baseWidth = Math.max(1, Math.round(bitmap.width * scale)), baseHeight = Math.max(1, Math.round(bitmap.height * scale));
+  const turns = (recipe.quarterTurns ?? 0) % 4;
+  const width = turns % 2 ? baseHeight : baseWidth, height = turns % 2 ? baseWidth : baseHeight;
   const source = document.createElement('canvas'); source.width = width; source.height = height;
   const context = source.getContext('2d', { willReadFrequently: true })!;
   const radians = recipe.angle * Math.PI / 180;
   // Zoom the rotated image to cover the original rectangle, avoiding empty corners.
   const zoom = Math.max((Math.abs(Math.cos(radians)) * width + Math.abs(Math.sin(radians)) * height) / width,
     (Math.abs(Math.sin(radians)) * width + Math.abs(Math.cos(radians)) * height) / height);
-  context.translate(width / 2, height / 2); context.rotate(radians); context.scale(zoom, zoom);
-  context.drawImage(bitmap, -width / 2, -height / 2, width, height); context.resetTransform();
+  context.translate(width / 2, height / 2); context.rotate(radians + turns * Math.PI / 2); context.scale(zoom, zoom);
+  context.drawImage(bitmap, -baseWidth / 2, -baseHeight / 2, baseWidth, baseHeight); context.resetTransform();
   const crop = constrainCrop(recipe.crop.x, recipe.crop.y, recipe.crop.width, recipe.crop.height);
   const output = document.createElement('canvas');
   output.width = Math.max(1, Math.round(width * crop.width)); output.height = Math.max(1, Math.round(height * crop.height));
