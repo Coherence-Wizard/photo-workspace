@@ -804,16 +804,16 @@ def dispatch(request):
             atomic_json(cat.locations_path, cat.locations)
             return {'removed': iid}
         if action == 'tag-ids':
-            ids = set()
-            for tag in request.get('tags', [request.get('tag')]):
-                if not isinstance(tag, str) or not tag: raise ValueError('Choose valid tags')
-                offset = 0
-                while True:
-                    page = cat.query({'tag': tag, 'descendants': request.get('descendants', True), 'limit': 300, 'offset': offset})
-                    ids.update(p['id'] for p in page['photos'])
-                    if not page['hasMore']: break
-                    offset += 300
-            return sorted(ids)
+            tags = request.get('tags', [request.get('tag')])
+            if not isinstance(tags, list) or not tags or any(not isinstance(tag, str) or not tag for tag in tags):
+                raise ValueError('Choose valid tags')
+            descendants = request.get('descendants', True)
+            def matches(value): return any(value == tag or (descendants and value.startswith(tag + '/')) for tag in tags)
+            tag_ids = [str(int(tid)) for tid, path in cat.tags.items() if matches(path)]
+            ids = {row[0] for row in cat.conn.execute("SELECT DISTINCT i.id FROM Images i JOIN Albums a ON a.id=i.album JOIN ImageTags t ON t.imageid=i.id LEFT JOIN overlay o ON o.imageid=i.id WHERE i.status=1 AND i.category=1 AND o.imageid IS NULL AND t.tagid IN (" + (','.join(tag_ids) or '-1') + ')')}
+            for iid, pending in cat.pending.items():
+                if any(matches(tag) for tag in pending['metadata']['tags']) and cat.conn.execute('SELECT 1 FROM Images i JOIN Albums a ON a.id=i.album WHERE i.id=? AND i.status=1 AND i.category=1', (int(iid),)).fetchone(): ids.add(int(iid))
+            return sorted(iid for iid in ids if cat.locations.get(str(iid), '') is not None)
         if action == 'write':
             if not cat.settings.get('writesEnabled'):
                 raise ValueError('Enable metadata writing in Photo Workspace settings first.')
