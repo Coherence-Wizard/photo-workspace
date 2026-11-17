@@ -4,6 +4,7 @@ One JSON request on stdin, one JSON response on stdout. No shell execution.
 The write journal lives in the plugin's local data directory, never in digiKam.
 """
 import base64
+from contextlib import closing
 import glob
 import hashlib
 import json
@@ -61,8 +62,21 @@ def exiftool_path(configured=''):
     raise ValueError('ExifTool was not found. Install ExifTool or choose its executable in Photo Workspace settings.')
 
 
+def run_exif(tool, args, timeout=90):
+    # UTF-8 arguments on stdin avoid Windows command-line code-page conversion.
+    # CSTR lines preserve literal backslashes and multiline captions as one argument.
+    lines = []
+    for argument in args:
+        value = str(argument)
+        if '\0' in value: raise ValueError('Metadata arguments cannot contain a null character.')
+        value = value.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+        lines.append('#[CSTR]' + value)
+    return subprocess.run([tool, '-charset', 'UTF8', '-charset', 'filename=UTF8', '-@', '-'],
+                          input=('\n'.join(lines) + '\n').encode('utf-8'), capture_output=True, timeout=timeout)
+
+
 def exif(tool, args, binary=False):
-    result = subprocess.run([tool, '-charset', 'filename=UTF8', *args], capture_output=True, timeout=90)
+    result = run_exif(tool, args)
     if result.returncode:
         raise ValueError(result.stderr.decode('utf-8', 'replace').strip() or 'ExifTool could not process the file.')
     return result.stdout if binary else result.stdout.decode('utf-8', 'replace')
@@ -73,9 +87,8 @@ def read_photo_metadata(tool, paths):
     fields = ['TagsList', 'HierarchicalSubject', 'Subject', 'Keywords', 'Rating', 'ColorLabel', 'PickLabel',
               'DateTimeOriginal', 'CreateDate', 'ImageWidth', 'ImageHeight', 'FileType', 'Model', 'LensModel',
               'Lens', 'Title', 'Description', 'GPSLatitude', 'GPSLongitude']
-    result = subprocess.run([tool, '-charset', 'filename=UTF8', '-j', '-n', '-d', '%Y-%m-%dT%H:%M:%S',
-                             *['-' + f for f in fields], '-Error', '-Warning', *map(str, paths)],
-                            capture_output=True, timeout=120)
+    result = run_exif(tool, ['-j', '-n', '-d', '%Y-%m-%dT%H:%M:%S',
+                            *['-' + f for f in fields], '-Error', '-Warning', *map(str, paths)], timeout=120)
     try:
         records = json.loads(result.stdout)
         if not isinstance(records, list) or not records:
@@ -625,7 +638,7 @@ class Catalog:
         atomic_json(self.locations_path, self.locations)
         if self.settings.get('sourceMode') == 'folder':
             root = self.root_path(self.roots[0]); source, destination = pairs[0]
-            with sqlite3.connect(self.db, timeout=30) as index:
+            with closing(sqlite3.connect(self.db, timeout=30)) as index, index:
                 album = '/' + destination.parent.relative_to(root).as_posix().removeprefix('.')
                 index.execute('INSERT OR IGNORE INTO Albums(albumRoot,relativePath) VALUES (1,?)', (album,))
                 aid = index.execute('SELECT id FROM Albums WHERE relativePath=?', (album,)).fetchone()[0]

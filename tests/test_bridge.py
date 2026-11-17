@@ -1,3 +1,5 @@
+import os
+from contextlib import closing
 import importlib.util
 import json
 from pathlib import Path
@@ -46,7 +48,7 @@ class CatalogTests(unittest.TestCase):
         catalog = self.call('catalog')
         self.assertEqual(catalog['tagCounts']['Places'], 2)
         self.assertEqual(catalog['tagCounts']['Places/Oregon/Coast'], 2)
-        self.assertEqual(catalog['folderCounts'][str((self.directory / 'Collection').resolve())], 4)
+        self.assertEqual(catalog['folderCounts'][os.path.normcase(str((self.directory / 'Collection').resolve()))], 4)
         self.write({'removeTags': ['Places', 'Places/Oregon/Coast'], 'addTags': ['New/Child']})
         catalog = self.call('catalog')
         self.assertEqual(catalog['tagCounts']['Places'], 1)
@@ -60,7 +62,7 @@ class CatalogTests(unittest.TestCase):
         (root / 'Nested').mkdir()
         self.call('file-operation', id=1, operation='move', destination=str(root / 'Nested' / 'renamed.png'))
         self.assertEqual([p['id'] for p in self.call('query', filters={'folderAbsolute': str(root / 'Nested')})['photos']], [1])
-        self.assertEqual(self.call('catalog')['folderCounts'][str((root / 'Nested').resolve())], 1)
+        self.assertEqual(self.call('catalog')['folderCounts'][os.path.normcase(str((root / 'Nested').resolve()))], 1)
 
     def test_folder_scan_keeps_valid_metadata_when_one_photo_is_broken(self):
         tool = self.require_exiftool()
@@ -117,6 +119,14 @@ class CatalogTests(unittest.TestCase):
         subfolder = {**filters, 'folderAbsolute': str(self.directory / 'Collection' / 'A')}
         self.assertEqual([p['id'] for p in self.call('query', filters=subfolder)['photos']], [2, 3])
         self.assertEqual([p['id'] for p in self.call('query', filters={**subfolder, 'folderRecursive': False})['photos']], [2])
+
+    def test_unicode_and_multiline_metadata_survives_argument_transport(self):
+        caption = 'Texte français, 日本語, 😀\nSecond line with \\ and # -overwrite_original'
+        result = self.write({'caption': caption, 'addTags': ['日本語/Été']})
+        self.assertEqual(result['errors'], [])
+        xmp = self.read_xmp()
+        self.assertEqual(xmp['Description'], caption)
+        self.assertIn('日本語/Été', xmp['TagsList'])
 
     def test_pagination_hierarchy_and_internal_labels(self):
         self.assertEqual(self.call('catalog')['tags'], ['Places', 'Places/Oregon', 'Places/Oregon/Coast', 'Portfolio'])
@@ -278,7 +288,7 @@ class CatalogTests(unittest.TestCase):
         source = self.directory / 'Collection/Landscape-01.png'
         renamed = source.with_suffix('.cr2')
         source.rename(renamed)
-        with sqlite3.connect(self.settings['databasePath']) as db:
+        with closing(sqlite3.connect(self.settings['databasePath'])) as db, db:
             db.execute('UPDATE Images SET name=? WHERE id=1', (renamed.name,))
         before = renamed.read_bytes()
         result = self.write({'rating': 5})
@@ -379,7 +389,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.call('photo', id=iid)['path'], str(dest.resolve()))
 
     def test_folder_export_filter_includes_descendants_not_similar_prefixes(self):
-        with sqlite3.connect(self.settings['databasePath']) as db:
+        with closing(sqlite3.connect(self.settings['databasePath'])) as db, db:
             db.execute("UPDATE Albums SET relativePath='/Trip' WHERE id=1")
             db.execute("INSERT INTO Albums VALUES (2,1,'/Trip/Day')")
             db.execute("INSERT INTO Albums VALUES (3,1,'/Trips')")
