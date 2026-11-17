@@ -1,0 +1,9 @@
+{
+  "id": "photo-workspace",
+  "name": "Photo Workspace",
+  "version": "0.0.2",
+  "minAppVersion": "1.8.0",
+  "description": "Browse photo folders or digiKam catalogs, organize metadata, and edit and export images.",
+  "author": "Coherence Wizard",
+  "isDesktopOnly": true
+}

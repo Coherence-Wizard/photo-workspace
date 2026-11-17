@@ -1,0 +1,26 @@
+{
+  "name": "photo-workspace",
+  "version": "0.0.2",
+  "description": "Organize, tag, rate, edit, and export photos in Obsidian, with optional digiKam integration.",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc --noEmit && node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch",
+    "test": "python3 -m unittest discover -s tests -v && node --import tsx --test tests/*.test.ts",
+    "package": "npm run build && node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.28.2",
+    "obsidian": "^1.13.1",
+    "tsx": "^4.0.0",
+    "typescript": "^5.9.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Coherence-Wizard/photo-workspace.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Coherence-Wizard/photo-workspace/issues"
+  }
+}
