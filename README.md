@@ -50,12 +50,16 @@ Cut/Copy/Paste use the plugin’s internal clipboard. Paste destinations must be
 
 | Key | Action |
 | --- | --- |
-| ← / → | Previous / next photo in preview |
-| T | Open tag entry in preview |
+| ← / → | Previous / next photo in preview, or move the selected thumbnail |
+| ↑ / ↓ | Move one thumbnail row; hold Shift with arrows to extend the selection |
+| T | Open tag entry for the selection in preview or thumbnails |
 | Enter in tag entry | Select/queue the typed tag; if the field is empty, save queued tags |
 | 1–5 | Rate selected photos in preview or thumbnails |
 | Escape | Close tag entry, cancel an active crop, or return from preview to thumbnails |
 | Enter during crop | Apply the adjustable crop rectangle |
+| Cmd/Ctrl+S | Save edited pixels to the previewed file, or edited files in the chosen folder in thumbnail view |
+| Cmd/Ctrl+Z | Undo adjustments; when no draft remains, restore the last saved edit backup |
+| Cmd/Ctrl+Shift+Z | Redo an unsaved preview adjustment |
 
 Shortcuts do not assign ratings while you type in a text field. Set custom shortcuts under **Settings → Hotkeys**, searching for **Coherence Photo**. Commands include ratings, clearing a rating, navigation, tags, export, and automatic levels.
 
@@ -71,9 +75,13 @@ Adjust exposure, contrast, highlights, shadows, white balance, saturation, vibra
 
 **Adjust crop** displays a persistent crop rectangle with eight resize handles. Drag the center to move it, drag edges/corners to resize, or draw a new rectangle. Choose free, original, fixed, or custom ratios. Click **Apply crop** or press Enter when ready; Escape cancels. Focus a handle and use arrow keys for fine adjustment, with Shift for larger steps.
 
-**Rotate** turns a photo 90° clockwise per click. It is available in the preview toolbar and photo context menu. Rotation, crop, and other edits save a recipe without overwriting original pixels; **Export copy** renders the edited result. Undo/Redo are available in preview.
+**Rotate** turns a photo 90° clockwise per click. It is available in the preview toolbar and photo context menu. Rotation, crop, and other edits initially save a recipe in the vault. **Cmd/Ctrl+S** writes the rendered result into the original **JPEG, PNG, or WebP**, keeping a recovery backup. Preview Save applies an active crop first. Thumbnail Save processes edited files throughout the selected folder, including unloaded photos, and follows the include-subfolders setting; other tag/rating filters do not narrow this folder save. Unedited files are skipped. Choose a folder before saving from an all-photos or tag-only view.
 
-Export selected photos, current filter matches, a tag and its subtags, or a folder and its subfolders. Resize proportionally to maximum dimensions or a percentage, or keep edited dimensions. The dialog hides irrelevant options. Exports create unique **8-bit sRGB PNG** copies, copy metadata when possible, normalize orientation, and remove stale face-region geometry. Existing files are not overwritten. Limits are 60 megapixels and 30,000 pixels per edge.
+**Lucky** is in the preview toolbar. **Export copy**, **Undo**, and **Redo** are at the bottom of the left tag/folder pane. Image adjustments, color and tone, levels, and geometry can each be collapsed.
+
+Saved edits are 8-bit sRGB; JPG is re-encoded at 95% quality and transparency is flattened to white when exporting JPG. The editor cannot write TIFF, RAW, animated formats, or other unsupported originals; export a supported copy instead. Active sidecars must be resolved before in-place saving. Backups remain under plugin local-data. Undo refuses to overwrite externally changed files. **Undo saved image edits** restores the latest saved batch (or current previewed file); it is distinct from metadata undo. Redo applies to unsaved preview adjustments.
+
+Export selected photos, current filter matches, a tag and its subtags, or a folder and its subfolders. Resize proportionally to maximum dimensions or a percentage, or keep edited dimensions. The dialog hides irrelevant options. **Format** offers **Keep as is (original format)**, **PNG**, or **JPG**, with quality controls for JPG/WebP. Edited/resized original-format exports support JPEG, PNG, and WebP. With original dimensions and no edits, Keep as is makes a byte-for-byte copy, including formats that cannot be edited, and carries along existing unambiguous XMP sidecars. Rendered copies use **8-bit sRGB**, copy metadata when possible, normalize orientation, and remove stale face-region geometry. Existing files are not overwritten. Limits are 60 megapixels and 30,000 pixels per edge.
 
 Full RAW development, HDR, and high-bit-depth editing are not included. Some formats use embedded JPEG previews; export from a RAW embedded preview is disabled. Batch automatic levels has its own recipe undo, separate from metadata undo.
 
@@ -83,7 +91,7 @@ Full RAW development, HDR, and high-bit-depth editing are not included. Some for
 - Local filesystem access covers the photo folder, helper executables, and chosen export destinations, including locations outside the vault.
 - Python and ExifTool run as local child processes with argument arrays, without shell interpolation.
 - Settings and recipes use Obsidian’s plugin storage. Indexes, journals, and backups live under the plugin’s `local-data` folder. Embedded-write backups contain the original image files and can take substantial disk space.
-- Keep the plugin data directory in your backups if you need edit recipes or metadata undo. Removing the plugin does not undo metadata already written to photos.
+- Keep the plugin data directory in your backups if you need edit recipes or metadata/image undo. Removing the plugin does not undo metadata already written to photos.
 - Concurrent writing from multiple machines or Obsidian instances is not supported. Helper and collection paths may differ between computers.
 
 ## Beta status and upgrading

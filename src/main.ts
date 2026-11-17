@@ -1,5 +1,6 @@
 import { Plugin, PluginSettingTab, Setting, Modal, Notice, FileSystemAdapter, WorkspaceLeaf, TFile, normalizePath, AbstractInputSuggest } from 'obsidian';
 import { join, dirname, basename, extname } from 'node:path';
+import { reconcileSavedRecipes } from './save-edits';
 import { ExportPhotos } from './export';
 import { trashPhotoFiles } from './system';
 import { Bridge } from './bridge';
@@ -53,8 +54,12 @@ export default class PhotoWorkspace extends Plugin {
     });
     photoCommand('adjust-crop', 'Adjust or cancel crop', () => hasPhotos() && this.activeBrowser?.mode === 'preview', () => { const browser = this.activeBrowser!; if (browser.cropMode) browser.finishCrop(false); else browser.beginCrop(); });
     photoCommand('rotate-photo', 'Rotate selected photos clockwise', hasSelection, () => { void this.activeBrowser?.rotateSelected(); });
-    photoCommand('previous-photo', 'Preview previous photo', () => hasPhotos() && this.activeBrowser?.mode === 'preview', () => { void this.activeBrowser?.navigate(-1); });
-    photoCommand('next-photo', 'Preview next photo', () => hasPhotos() && this.activeBrowser?.mode === 'preview', () => { void this.activeBrowser?.navigate(1); });
+    photoCommand('previous-photo', 'Select previous photo', hasPhotos, () => { void this.activeBrowser?.navigate(-1); });
+    photoCommand('next-photo', 'Select next photo', hasPhotos, () => { void this.activeBrowser?.navigate(1); });
+    photoCommand('save-edits', 'Save image edits to original files', hasPhotos, () => { void this.activeBrowser?.saveEdits(); });
+    photoCommand('undo-edits', 'Undo photo adjustment', hasPhotos, () => { void this.activeBrowser?.undoEdit(); });
+    photoCommand('redo-edits', 'Redo photo adjustment', hasPhotos, () => this.activeBrowser?.redoRecipe());
+    photoCommand('undo-saved-edits', 'Undo saved image edits', hasPhotos, () => { void this.activeBrowser?.undoSavedEdits(); });
     photoCommand('show-grid', 'Return to photo thumbnails', () => hasPhotos() && this.activeBrowser?.mode === 'preview', () => this.activeBrowser?.showGrid());
     photoCommand('export-photos', 'Export photos', hasPhotos, () => this.exportPhotos());
     photoCommand('feeling-lucky', 'Apply I’m Feeling Lucky to selected photos', hasSelection, () => { void this.luckyBatch(); });
@@ -120,6 +125,7 @@ export default class PhotoWorkspace extends Plugin {
       if (key !== this.connectionKey()) return;
       await this.bridge.run('recover');
       this.catalog = await this.bridge.run<CatalogInfo>('catalog');
+      await reconcileSavedRecipes(this);
       const report = scanned?.scanReport;
       const failed = report?.failed ?? 0;
       this.status = `${this.catalog.count.toLocaleString()} photos${failed ? ` · ${failed} unreadable` : ''}`;
@@ -219,12 +225,14 @@ export default class PhotoWorkspace extends Plugin {
   async luckyBatch(): Promise<void> {
     const browser = this.activeBrowser, catalog = this.catalog?.key;
     if (!browser || !catalog || !browser.selected.size) { new Notice('Select photos first.'); return; }
+    if (this.busy || this.scanning) return;
+    if (browser.mode === 'preview') { browser.commitRecipe({ ...browser.recipe, auto: 100 }); this.emit('selection'); return; }
     this.settings.luckyUndo = {};
     for (const id of browser.selected) { this.settings.luckyUndo[`${catalog}:${id}`] = this.settings.recipes[`${catalog}:${id}`] ? structuredClone(this.settings.recipes[`${catalog}:${id}`]) : null; const recipe = structuredClone(this.settings.recipes[`${catalog}:${id}`] ?? freshRecipe()); recipe.auto = 100; this.settings.recipes[`${catalog}:${id}`] = recipe; }
-    await this.save(); browser.refreshEditedThumbnails(); new Notice(`Automatic adjustment saved for ${browser.selected.size} photos. Export applies it; originals are unchanged.`);
+    await this.save(); browser.refreshEditedThumbnails(); new Notice(`Automatic adjustment saved for ${browser.selected.size} photos. Save or export applies it to image pixels.`);
   }
   async undoLuckyBatch(): Promise<void> { for (const [key, recipe] of Object.entries(this.settings.luckyUndo ?? {})) { if (recipe) this.settings.recipes[key] = recipe; else delete this.settings.recipes[key]; } delete this.settings.luckyUndo; await this.save(); this.activeBrowser?.refreshEditedThumbnails(); new Notice('Restored recipes from before the last batch adjustment.'); }
-  exportPhotos(): void { new ExportPhotos(this).open(); }
+  exportPhotos(): void { if (this.busy || this.scanning) return; void (async () => { await this.activeBrowser?.flushRecipe(); new ExportPhotos(this).open(); })().catch(error => this.fail(error)); }
   availableTags(): string[] { return [...new Set([...(this.catalog?.tags ?? []), ...(this.settings.customTags[this.catalog?.key ?? ''] ?? [])])].sort((a, b) => a.localeCompare(b)); }
   tagPrompt(): void { new TagPrompt(this).open(); }
   deleteTags(tags: string[]): void { new DeleteTagsModal(this, tags).open(); }
@@ -371,7 +379,7 @@ function renderSettings(el: HTMLElement, plugin: PhotoWorkspace): void {
   const settings = plugin.settings;
   setupHelp(el, plugin);
   new Setting(el).setName('Include subfolders when browsing').setDesc('On: show the selected folder first, then its subfolders in alphabetical hierarchy order with dividers as you scroll. Off: show only photos directly in the selected folder. Photo sorting applies within each folder.').addToggle(t => t.setValue(settings.includeSubfolders).onChange(async value => { settings.includeSubfolders = value; await plugin.save(); const browser = plugin.activeBrowser; if (browser?.filters.folderAbsolute) { browser.filters.folderRecursive = value; browser.filters.groupFolders = value; await browser.reload(); plugin.emit('filters'); } }));
-  el.createEl('p', { cls: 'pw-hint', text: 'Keyboard: ← / → moves through previews, 1–5 rates selected photos, and T opens Add tags in preview. You can assign your own shortcuts in Obsidian Settings → Hotkeys; search for Coherence Photo.' });
+  el.createEl('p', { cls: 'pw-hint', text: 'Keyboard: ← / → moves through previews, 1–5 rates selected photos, and T opens Add tags in either view. Cmd/Ctrl+S saves edits to originals; Cmd/Ctrl+Z undoes adjustments. You can assign your own shortcuts in Obsidian Settings → Hotkeys; search for Coherence Photo.' });
     new Setting(el).setName('Photo folder').setDesc('Paste the full folder path. All subfolders are included; hidden folders are skipped. Click Scan photos after adding, moving, or changing files outside the plugin.').addText(t => t.setValue(settings.photoFolder).onChange(async value => { settings.photoFolder = value.trim(); plugin.scanResult = null; plugin.emit('status'); await plugin.save(); })).addButton(b => b.setButtonText('Use this vault').onClick(async () => { const adapter = plugin.app.vault.adapter; if (adapter instanceof FileSystemAdapter) { settings.photoFolder = adapter.getBasePath(); plugin.scanResult = null; await plugin.save(); el.empty(); renderSettings(el, plugin); } }));
   new Setting(el).setName('Python executable').setDesc('Leave blank to detect Python 3.').addText(t => t.setValue(settings.pythonPath).onChange(async v => { settings.pythonPath = v.trim(); await plugin.save(); }));
   new Setting(el).setName('ExifTool executable').setDesc('Leave blank to detect a separately installed ExifTool, or enter its full executable path.').addText(t => t.setValue(settings.exiftoolPath).onChange(async v => { settings.exiftoolPath = v.trim(); await plugin.save(); }));

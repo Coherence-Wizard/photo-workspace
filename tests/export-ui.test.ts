@@ -26,6 +26,9 @@ test('export dialog exposes only settings required by the chosen scope and resiz
   new module.exports.ExportPhotos(plugin).onOpen();
   const find = (name: string) => settings.find(s => s.name === name)!;
   const visible = (name: string) => !find(name).settingEl.hidden;
+  find('Format').input.change('png'); assert.equal(visible('JPG / WebP quality'), false);
+  find('Format').input.change('jpg'); assert.equal(visible('JPG / WebP quality'), true);
+  find('Format').input.change('original');
   assert.equal(visible('Tag'), false); assert.equal(visible('Collection folder'), false);
   find('Photos to export').input.change('tag');
   assert.equal(visible('Tag'), true); assert.equal(visible('Collection folder'), false);

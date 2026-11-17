@@ -399,8 +399,11 @@ class Catalog:
                 params.append(folder)
         if filters.get('folderPath') is not None:
             folder = filters['folderPath'].rstrip('/')
-            conditions.append("(relativePath=? OR substr(relativePath,1,length(?)+1)=?||'/')")
-            params.extend([folder or '/', folder, folder])
+            if filters.get('folderRecursive', True):
+                conditions.append("(relativePath=? OR substr(relativePath,1,length(?)+1)=?||'/')")
+                params.extend([folder or '/', folder, folder])
+            else:
+                conditions.append('relativePath=?'); params.append(folder or '/')
         if filters.get('search'):
             conditions.append('(name LIKE ? ESCAPE "\\" OR title LIKE ? ESCAPE "\\" OR caption LIKE ? ESCAPE "\\")')
             term = filters['search'].replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
@@ -709,13 +712,92 @@ class Catalog:
         self.pending = pending
         atomic_json(self.state_path, pending)
 
-    def undo(self):
+    def copy_rendered_metadata(self, photo, source, target, width, height):
+        tool = exiftool_path(self.settings.get('exiftoolPath', ''))
+        args = ['-overwrite_original', '-TagsFromFile', source, '-all:all']
+        sidecar = self.sidecar(source)
+        if sidecar.is_file() and self.settings.get('writeMode') != 'embedded':
+            args += ['-TagsFromFile', str(sidecar), '-all:all']
+        args += ['-XMP-digiKam:TagsList=', '-XMP-lr:HierarchicalSubject=', '-XMP-dc:Subject=']
+        for tag in photo['tags']:
+            args += ['-XMP-digiKam:TagsList+=' + tag, '-XMP-lr:HierarchicalSubject+=' + tag.replace('/', '|')]
+        for tag in sorted({t.split('/')[-1] for t in photo['tags']}):
+            args += ['-XMP-dc:Subject+=' + tag]
+        args += [f'-XMP-xmp:Rating={photo["rating"]}', f'-XMP-digiKam:ColorLabel={photo["color"]}', f'-XMP-digiKam:PickLabel={photo["pick"]}',
+                 '-XMP-dc:Title-x-default=' + photo['title'], '-XMP-dc:Description-x-default=' + photo['caption'],
+                 '-Orientation#=1', '-XMP-tiff:Orientation#=1', '-ColorSpace#=1', '-ICC_Profile=',
+                 '-ExifImageWidth=' + str(int(width)), '-ExifImageHeight=' + str(int(height)),
+                 '-XMP-tiff:ImageWidth=' + str(int(width)), '-XMP-tiff:ImageHeight=' + str(int(height)),
+                 '-XMP-digiKam:ImageUniqueID=', '-XMP-digiKam:ImageHistory=', '-XMP-xmpMM:DocumentID=',
+                 '-XMP-mwg-rs:RegionInfo=', '-XMP-MP:RegionInfo=', '-ThumbnailImage=', '-PreviewImage=', str(target)]
+        exif(tool, args)
+
+    def update_pixel_index(self, image_id, target):
+        tool = exiftool_path(self.settings.get('exiftoolPath', ''))
+        info = json.loads(exif(tool, ['-j', '-ImageWidth', '-ImageHeight', '-FileType', str(target)]))[0]
+        with closing(sqlite3.connect(self.db, timeout=10)) as writer:
+            writer.execute('UPDATE Images SET fileSize=? WHERE id=?', (Path(target).stat().st_size, image_id))
+            writer.execute('UPDATE ImageInformation SET width=?,height=?,format=? WHERE imageid=?', (info.get('ImageWidth', 0), info.get('ImageHeight', 0), info.get('FileType', ''), image_id))
+            writer.commit()
+
+    def save_pixels(self, request):
+        photo = self.photo(int(request['id']))
+        target = Path(self.path(photo, require=True))
+        formats = {'.jpg': 'JPEG', '.jpeg': 'JPEG', '.png': 'PNG', '.webp': 'WEBP'}
+        if target.suffix.lower() not in formats:
+            raise ValueError('Save supports JPEG, PNG, and WebP originals. Export other formats to PNG or JPG.')
+        if self.settings.get('writeMode') == 'sidecar' and self.sidecar(target).exists():
+            raise ValueError('This image has an active sidecar. Export a copy instead to avoid conflicting geometry metadata.')
+        expected = request['expectedHash']
+        if not expected or digest(target) != expected:
+            raise ValueError('The original changed while rendering. No file was replaced; reopen it and try again.')
+        previous = self.pending.get(str(photo['id']))
+        if previous and (previous['target'] != str(target) or previous['hash'] != expected):
+            raise ValueError('Resolve the pending metadata conflict before saving image edits.')
+        self.journal.mkdir(parents=True, exist_ok=True)
+        op_id = uuid.uuid4().hex
+        backup = self.journal / (op_id + '.backup')
+        shutil.copy2(target, backup)
+        if digest(backup) != expected:
+            raise ValueError('The original changed during backup; no file was replaced.')
+        fd, name = tempfile.mkstemp(dir=target.parent, prefix='.photo-edit-', suffix=target.suffix)
+        stage = Path(name)
+        try:
+            with os.fdopen(fd, 'wb') as output:
+                output.write(base64.b64decode(request['data'], validate=True))
+                output.flush(); os.fsync(output.fileno())
+            tool = exiftool_path(self.settings.get('exiftoolPath', ''))
+            info = json.loads(exif(tool, ['-j', '-FileType', '-ImageWidth', '-ImageHeight', str(stage)]))[0]
+            if info.get('FileType') != formats[target.suffix.lower()] or info.get('ImageWidth') != request['width'] or info.get('ImageHeight') != request['height']:
+                raise ValueError('Rendered image format or dimensions do not match the original format. No file was replaced.')
+            self.copy_rendered_metadata(photo, str(target), stage, request['width'], request['height'])
+            os.chmod(stage, target.stat().st_mode)
+            record = {'id': op_id, 'kind': 'pixels', 'batch': request['batch'], 'imageId': photo['id'],
+                      'target': str(target), 'source': str(target), 'beforeHash': expected, 'afterHash': digest(stage),
+                      'backup': str(backup), 'beforePending': previous, 'metadata': self.metadata(photo),
+                      'recipe': request['recipe'], 'status': 'prepared', 'created': time.time()}
+            record_path = self.journal / (op_id + '.json')
+            atomic_json(record_path, record)
+            if digest(target) != expected:
+                record['status'] = 'conflict'; atomic_json(record_path, record)
+                raise ValueError('The original changed before saving. No file was replaced.')
+            os.replace(stage, target)
+            record['status'] = 'committed'; atomic_json(record_path, record)
+            self.recover()
+            # A scan repairs the rebuildable index if its update is interrupted.
+            try: self.update_pixel_index(photo['id'], target)
+            except (OSError, sqlite3.Error, ValueError): pass
+            return {'operation': op_id, 'id': photo['id']}
+        finally:
+            if stage.exists(): stage.unlink()
+
+    def undo(self, pixels=False, image_id=None):
         records = [json.loads(p.read_text('utf-8')) for p in self.journal.glob('*.json')]
-        active = [r for r in records if r['status'] == 'committed']
+        active = [r for r in records if r['status'] == 'committed' and ((r.get('kind') == 'pixels') if pixels else (r.get('kind') != 'pixels')) and (image_id is None or r['imageId'] == image_id)]
         if not active:
-            return {'restored': 0, 'errors': []}
+            return {'restored': 0, 'ids': [], 'errors': []}
         batch = max(active, key=lambda r: r['created'])['batch']
-        restored, errors = 0, []
+        restored, errors, ids = 0, [], []
         for record in sorted([r for r in active if r['batch'] == batch], key=lambda r: r['created'], reverse=True):
             target = Path(record['target'])
             if digest(target) != record['afterHash']:
@@ -736,8 +818,12 @@ class Catalog:
             record['status'] = 'undone'
             atomic_json(self.journal / (record['id'] + '.json'), record)
             restored += 1
+            ids.append(record['imageId'])
+            if record.get('kind') == 'pixels':
+                try: self.update_pixel_index(record['imageId'], target)
+                except (OSError, sqlite3.Error, ValueError): pass
         self.recover()
-        return {'restored': restored, 'errors': errors}
+        return {'restored': restored, 'ids': ids, 'errors': errors}
 
 
 def dispatch(request):
@@ -821,6 +907,17 @@ def dispatch(request):
                 except Exception as error:
                     errors.append({'id': image_id, 'error': str(error)})
             return {'successes': successes, 'errors': errors}
+        if action == 'save-pixels':
+            return cat.save_pixels(request)
+        if action == 'undo-pixels':
+            return cat.undo(pixels=True, image_id=request.get('id'))
+        if action == 'pixel-state':
+            records = [json.loads(p.read_text('utf-8')) for p in cat.journal.glob('*.json')]
+            latest = {}
+            for record in sorted(records, key=lambda r: r['created']):
+                if record.get('kind') == 'pixels' and record['status'] == 'committed':
+                    latest[str(record['imageId'])] = {'operation': record['id'], 'recipe': record['recipe']}
+            return latest
         if action == 'undo':
             return cat.undo()
         if action == 'release':
@@ -840,26 +937,9 @@ def dispatch(request):
             source = cat.path(photo, require=True)
             target = Path(request['outputPath']).resolve()
             export_root = Path(request['exportRoot']).resolve()
-            if not target.is_file() or target.suffix.lower() != '.png' or not target.is_relative_to(export_root) or target == Path(source):
-                raise ValueError('Export metadata requires a newly rendered PNG inside the configured export folder.')
-            tool = exiftool_path(cat.settings.get('exiftoolPath', ''))
-            args = ['-overwrite_original', '-TagsFromFile', source, '-all:all']
-            sidecar = cat.sidecar(source)
-            if sidecar.is_file() and cat.settings.get('writeMode') != 'embedded':
-                args += ['-TagsFromFile', str(sidecar), '-all:all']
-            args += ['-XMP-digiKam:TagsList=', '-XMP-lr:HierarchicalSubject=', '-XMP-dc:Subject=']
-            for tag in photo['tags']:
-                args += ['-XMP-digiKam:TagsList+=' + tag, '-XMP-lr:HierarchicalSubject+=' + tag.replace('/', '|')]
-            for tag in sorted({t.split('/')[-1] for t in photo['tags']}):
-                args += ['-XMP-dc:Subject+=' + tag]
-            args += [f'-XMP-xmp:Rating={photo["rating"]}', f'-XMP-digiKam:ColorLabel={photo["color"]}', f'-XMP-digiKam:PickLabel={photo["pick"]}',
-                     '-XMP-dc:Title-x-default=' + photo['title'], '-XMP-dc:Description-x-default=' + photo['caption'],
-                     '-Orientation#=1', '-XMP-tiff:Orientation#=1', '-ColorSpace#=1', '-ICC_Profile=',
-                     '-ExifImageWidth=' + str(int(request['width'])), '-ExifImageHeight=' + str(int(request['height'])),
-                     '-XMP-tiff:ImageWidth=' + str(int(request['width'])), '-XMP-tiff:ImageHeight=' + str(int(request['height'])),
-                     '-XMP-digiKam:ImageUniqueID=', '-XMP-digiKam:ImageHistory=', '-XMP-xmpMM:DocumentID=',
-                     '-XMP-mwg-rs:RegionInfo=', '-XMP-MP:RegionInfo=', '-ThumbnailImage=', '-PreviewImage=', str(target)]
-            exif(tool, args)
+            if not target.is_file() or target.suffix.lower() not in ['.png', '.jpg', '.jpeg', '.webp'] or not target.is_relative_to(export_root) or target == Path(source):
+                raise ValueError('Export metadata requires a newly rendered JPEG, PNG, or WebP inside the configured export folder.')
+            cat.copy_rendered_metadata(photo, source, target, request['width'], request['height'])
             return {'saved': True}
         if action == 'preview':
             photo = cat.photo(request['id'])

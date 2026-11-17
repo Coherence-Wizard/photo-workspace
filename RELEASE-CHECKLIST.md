@@ -27,3 +27,7 @@ Keyboard submission, draft crop handles, clockwise rotation, folder-only sources
 ## 0.0.4 name update
 
 Rename the public display name to Coherence Photo. Retain the `photo-workspace` plugin ID, command IDs, view types, data paths, and repository URL for existing installations and update continuity.
+
+## 0.0.5 keyboard and image-save update
+
+Grid arrow navigation and tagging; scoped Save/Undo shortcuts; original-format, PNG, and JPG export; journaled original-file pixel saves; left-pane preview actions and collapsible adjustments. Automated validation: 33 Python integration tests and 23 TypeScript tests. macOS CI uses `macos-15-intel` after hosted ARM capacity cancellation.

@@ -125,3 +125,8 @@
 .pw-crop-s { left: 50%; top: 100%; cursor: ns-resize; }
 .pw-crop-sw { left: 0; top: 100%; cursor: nesw-resize; }
 .pw-crop-w { left: 0; top: 50%; cursor: ew-resize; }
+
+.pw-library-actions { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 6px; padding: 12px; border-top: 1px solid var(--background-modifier-border); }
+.pw-adjustment-section { margin: 12px 0; }
+.pw-adjustment-section > summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
+.pw-adjustment-section > .pw-adjustment-section { margin-left: 4px; }

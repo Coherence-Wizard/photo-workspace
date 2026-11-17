@@ -40,6 +40,7 @@ export interface Settings {
   writeMode: 'sidecar' | 'embedded'; sidecarNaming: 'full' | 'stem';
   includeSubfolders: boolean;
   thumbnailSize: number; savedFilters: { name: string; filters: Filters }[];
+  pixelOperations?: Record<string, string>;
   luckyUndo?: Record<string, Recipe | null>;
   recipes: Record<string, Recipe>; exportFolder: string; customTags: Record<string, string[]>;
 }

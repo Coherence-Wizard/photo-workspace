@@ -12,11 +12,11 @@ The write journal records original hashes, backup paths, target hashes, metadata
 
 `src/image-engine.ts` decodes photos, caches thumbnails, renders image adjustments, and exports canvas pixels. `quarterTurns` is an optional recipe field for backward-compatible clockwise rotation. Odd turns exchange canvas dimensions; straighten remains a separate angle. Crop coordinates rotate with the image so existing framing is retained.
 
-`src/crop.ts` implements bounded movement and eight-handle resizing, with normalized aspect ratios. Preview stores a separate crop draft. Pointer movement changes the draft only; Apply/Enter commits one recipe history entry, and Cancel/Escape discards it. Recipes never overwrite source pixels.
+`src/crop.ts` implements bounded movement and eight-handle resizing, with normalized aspect ratios. Preview stores a separate crop draft. Pointer movement changes the draft only; Apply/Enter commits one recipe history entry, and Cancel/Escape discards it. Recipes remain separate until the user invokes Save. `src/save-edits.ts` renders full-resolution JPEG/PNG/WebP pixels and submits an expected source hash to the bridge. Pixel saves use the same prepared/committed journal protocol with a distinct record kind, full original backups, and format/dimension verification. Save receipts reconcile interrupted recipe clearing on restart; neutral recipes are skipped to avoid repeated recompression.
 
 Tag entry uses Obsidian suggestions. Enter selects a suggestion or queues typed tags. An empty-field Enter submits queued tags; IME composition and repeated keydown are ignored. Closing the dialog restores photo-view focus. Metadata assignment and edit recipe persistence are separate flows.
 
-`src/system.ts` handles reveal/open-with and system Trash. `src/export.ts` supports selection, filter, tag, and folder exports with conditional controls and proportional resize. Exported PNG metadata is normalized and stale face-region geometry removed.
+`src/system.ts` handles reveal/open-with and system Trash. `src/export.ts` supports selection, filter, tag, and folder exports with conditional controls and proportional resize. Rendered JPEG/PNG/WebP metadata is normalized and stale face-region geometry removed. `src/encoding.ts` verifies the encoder MIME type and flattens JPEG transparency to white. `src/copy-original.ts` copies untouched originals and existing sidecars byte-for-byte with exclusive destination creation and rollback on collisions.
 
 ## Extension paths
 

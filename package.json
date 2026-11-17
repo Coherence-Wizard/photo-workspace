@@ -1,6 +1,6 @@
 {
   "name": "photo-workspace",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Organize local photos with portable metadata tags, ratings, basic editing, and export in Obsidian.",
   "license": "MIT",
   "scripts": {

@@ -4,6 +4,8 @@ import PhotoWorkspace, { TextPrompt } from './main';
 import { Photo, Filters, Recipe, COLORS, PICKS, freshRecipe, rotateRecipe, toggleSelection, MetadataPatch, parsePhotoTags } from './types';
 import { moveCrop, resizeCrop, drawCrop, fitCropRatio, type Handle } from './crop';
 import { revealPhoto, openPhotoDefault, openPhotoWith } from './system';
+import { hasEdits } from './encoding';
+import { saveEdits, undoSavedEdits } from './save-edits';
 import { ThumbnailCache, decodePhoto, renderPhoto, histogram, constrainCrop } from './image-engine';
 
 export const VIEW_TYPES = { tags: 'photo-workspace-tags', filters: 'photo-workspace-filters', browser: 'photo-workspace-browser', inspector: 'photo-workspace-inspector' };
@@ -35,7 +37,7 @@ export class TagsView extends PhotoView {
   getDisplayText(): string { return 'Photo tags'; }
   getIcon(): string { return 'tags'; }
   async onOpen(): Promise<void> {
-    this.base(); for (const entry of this.app.vault.getAllLoadedFiles()) if (entry instanceof TFolder) this.foldersClosed.add(entry.path); this.contentEl.addClass('pw-navigation'); this.listen('catalog', () => this.render()); this.listen('tags', () => this.render());
+    this.base(); for (const entry of this.app.vault.getAllLoadedFiles()) if (entry instanceof TFolder) this.foldersClosed.add(entry.path); this.contentEl.addClass('pw-navigation'); this.listen('catalog', () => this.render()); this.listen('tags', () => this.render()); this.listen('selection', () => this.renderActions()); this.listen('status', () => this.renderActions());
     this.registerEvent(this.app.vault.on('create', () => this.render()));
     this.registerEvent(this.app.vault.on('delete', () => this.render()));
     this.registerEvent(this.app.vault.on('rename', () => this.render()));
@@ -158,8 +160,19 @@ export class TagsView extends PhotoView {
     };
     walk(this.app.vault.getRoot(), folderTree, 0);
     if (upperHeight) upper.style.height = upperHeight;
-    upper.scrollTop = upperScroll; lower.scrollTop = lowerScroll;
+    upper.scrollTop = upperScroll; lower.scrollTop = lowerScroll; this.renderActions();
   }
+  private renderActions(): void {
+    this.contentEl.querySelector('.pw-library-actions')?.remove();
+    const browser = this.plugin.activeBrowser;
+    if (!browser || browser.mode !== 'preview') return;
+    const actions = this.contentEl.createDiv('pw-library-actions');
+    button(actions, 'Export copy', () => { void browser.exportCopy(); }).addClass('mod-cta');
+    button(actions, 'Undo', () => { void browser.undoEdit(); });
+    button(actions, 'Redo', () => browser.redoRecipe());
+    actions.querySelectorAll('button').forEach(b => { b.disabled = this.plugin.busy; });
+  }
+
 }
 
 export class FiltersView extends PhotoView {
@@ -257,15 +270,32 @@ export class BrowserView extends PhotoView {
     this.preview = this.contentEl.createDiv('pw-preview'); this.preview.hidden = true;
     this.footer = this.contentEl.createDiv('pw-footer');
     this.listen('catalog', () => { void this.reload(); }); this.listen('status', () => this.renderFooter());
+    this.registerDomEvent(this.contentEl.ownerDocument, 'keydown', event => {
+      const target = event.target as HTMLElement;
+      if (this.plugin.activeBrowser !== this || !target.closest('.pw-view') || target.closest('.modal-container') || event.altKey || !(event.ctrlKey || event.metaKey)) return;
+      if (target.closest('textarea,[contenteditable=true],input:not([type=range]):not([type=checkbox])')) return;
+      const key = event.key.toLowerCase();
+      if (key !== 's' && key !== 'z') return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      if (event.repeat || this.plugin.busy || this.plugin.scanning) return;
+      if (key === 's') void this.saveEdits();
+      else if (event.shiftKey) this.redoRecipe(); else void this.undoEdit();
+    }, { capture: true });
     this.registerDomEvent(this.contentEl, 'keydown', event => {
-      if (event.defaultPrevented || (event.target as HTMLElement).closest('input,textarea,select,[contenteditable=true]') || event.altKey) return;
+      if (this.plugin.busy || this.plugin.scanning || event.defaultPrevented || (event.target as HTMLElement).closest('input,textarea,select,[contenteditable=true]') || event.altKey) return;
       if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.repeat && /^[1-5]$/.test(event.key)) { event.preventDefault(); void this.plugin.apply({ rating: Number(event.key) }); return; }
-      if (!event.metaKey && !event.ctrlKey && this.mode === 'preview' && event.key.toLowerCase() === 't') { event.preventDefault(); this.plugin.tagPrompt(); return; }
+      if (!event.metaKey && !event.ctrlKey && !event.repeat && event.key.toLowerCase() === 't') { event.preventDefault(); this.plugin.tagPrompt(); return; }
       if (this.cropMode && (event.key === 'Escape' || event.key === 'Enter')) { event.preventDefault(); this.finishCrop(event.key === 'Enter'); return; }
       if (event.key === 'Escape' && this.mode === 'preview') { event.preventDefault(); this.showGrid(); }
       if (event.key === 'Enter' && this.mode === 'grid') { const photo = this.photos.find(p => p.id === [...this.selected][0]); if (photo) void this.openPhoto(photo); }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a' && this.mode === 'grid') { event.preventDefault(); this.selected = new Set(this.photos.map(p => p.id)); this.selectionChanged(); }
-      if (!event.metaKey && !event.ctrlKey && this.mode === 'preview' && ['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); void this.navigate(event.key === 'ArrowLeft' ? -1 : 1); }
+      if (!event.metaKey && !event.ctrlKey && ['ArrowLeft', 'ArrowRight', ...(this.mode === 'grid' ? ['ArrowUp', 'ArrowDown'] : [])].includes(event.key)) {
+        event.preventDefault();
+        const tiles = [...this.grid.querySelectorAll<HTMLElement>('.pw-tile')];
+        const columns = Math.max(1, tiles.filter(tile => tile.offsetTop === tiles[0]?.offsetTop).length);
+        const delta = event.key === 'ArrowUp' ? -columns : event.key === 'ArrowDown' ? columns : event.key === 'ArrowLeft' ? -1 : 1;
+        void this.navigate(delta, event.shiftKey);
+      }
     });
     this.renderToolbar(); this.renderFooter(); if (this.plugin.catalog) await this.reload(); else empty(this.grid, 'Your photos, connected', 'Open connection settings to choose a photo folder.');
   }
@@ -290,8 +320,7 @@ export class BrowserView extends PhotoView {
       button(this.toolbar, 'Rotate', () => { void this.rotateSelected(); });
       const compare = button(this.toolbar, 'Before', () => {}, 'Hold to view the original');
       compare.addEventListener('pointerdown', () => this.renderPreview(true)); compare.addEventListener('pointerup', () => this.renderPreview()); compare.addEventListener('pointerleave', () => this.renderPreview());
-      button(this.toolbar, 'Undo', () => this.undoRecipe()); button(this.toolbar, 'Redo', () => this.redoRecipe());
-      button(this.toolbar, 'Export copy', () => { void this.exportCopy(); }).addClass('mod-cta');
+      button(this.toolbar, 'Lucky', () => { this.commitRecipe({ ...this.recipe, auto: 100 }); this.plugin.emit('selection'); }, 'Apply automatic levels');
     } else {
       button(this.toolbar, 'Connect', () => this.plugin.openSettings());
       button(this.toolbar, 'Refresh', () => { void this.plugin.refresh(); });
@@ -310,11 +339,12 @@ export class BrowserView extends PhotoView {
     }
   }
   renderFooter(): void {
-    this.footer.empty(); this.footer.createSpan({ text: this.mode === 'grid' ? `${this.photos.length.toLocaleString()} loaded · ${this.selected.size} selected${this.filters.tag ? ' · ' + this.filters.tag : ''}${this.filters.folderAbsolute ? ' · ' + this.filters.folderAbsolute : ''}` : this.embeddedPreview ? 'Embedded preview · export disabled for RAW preview' : 'Edits preserve the original' });
+    this.footer.empty(); this.footer.createSpan({ text: this.mode === 'grid' ? `${this.photos.length.toLocaleString()} loaded · ${this.selected.size} selected${this.filters.tag ? ' · ' + this.filters.tag : ''}${this.filters.folderAbsolute ? ' · ' + this.filters.folderAbsolute : ''}` : this.embeddedPreview ? 'Embedded preview · export disabled for RAW preview' : 'Cmd/Ctrl+S saves edits to this file · Cmd/Ctrl+Z undoes' });
     this.footer.createSpan({ cls: 'pw-status', text: this.plugin.status });
     if (this.plugin.busy) button(this.footer, 'Cancel batch', () => { this.plugin.cancelled = true; });
   }
   async reload(preserveSelection = false): Promise<void> {
+    if (this.plugin.busy) return;
     this.pageObserver?.disconnect();
     this.cancelDrag?.();
     const restoreFocus = this.contentEl.contains(this.contentEl.ownerDocument.activeElement);
@@ -460,6 +490,8 @@ export class BrowserView extends PhotoView {
     }
   }
   async openPhoto(photo: Photo): Promise<void> {
+    if (this.plugin.busy) return;
+    if (this.recipeTimer) { clearTimeout(this.recipeTimer); this.recipeTimer = null; }
     if (this.current && this.mode === 'preview') await this.plugin.saveRecipe(this.current.id, this.recipe, this.recipeCatalog);
     const token = ++this.previewId;
     if (this.mode === 'grid') this.scrollTop = this.grid.scrollTop;
@@ -475,22 +507,54 @@ export class BrowserView extends PhotoView {
     } catch (error) { if (token === this.previewId) { this.preview.empty(); empty(this.preview, 'Preview unavailable', String(error)); } }
   }
   showGrid(): void {
+    if (this.plugin.busy) return;
+    if (this.recipeTimer) { clearTimeout(this.recipeTimer); this.recipeTimer = null; }
     if (this.current) void this.plugin.saveRecipe(this.current.id, this.recipe, this.recipeCatalog);
     this.previewId++; this.mode = 'grid'; this.bitmap?.close(); this.bitmap = null; this.preview.empty(); this.preview.hidden = true; this.grid.hidden = false;
     this.refreshEditedThumbnails(); this.grid.scrollTop = this.scrollTop; this.renderToolbar(); this.selectionChanged(); this.observeNextPage();
   }
-  async navigate(delta: number): Promise<void> {
-    if (this.navigating || this.mode !== 'preview' || !this.current) return;
+  async navigate(delta: number, range = false): Promise<void> {
+    if (this.navigating || this.plugin.busy) return;
     this.navigating = true;
-    const currentId = this.current.id, token = this.requestId;
+    const mode = this.mode, currentId = this.current?.id ?? [...this.selected][0], token = this.requestId;
     try {
       const index = this.photos.findIndex(p => p.id === currentId);
-      if (delta > 0 && index === this.photos.length - 1 && this.hasMore) await this.loadMore();
-      if (token !== this.requestId || this.mode !== 'preview' || this.current?.id !== currentId) return;
-      const next = this.photos[index + delta]; if (next) await this.openPhoto(next);
+      if (delta > 0 && index + delta >= this.photos.length && this.hasMore) await this.loadMore();
+      if (token !== this.requestId || this.mode !== mode) return;
+      const next = this.photos[index < 0 ? 0 : Math.max(0, Math.min(this.photos.length - 1, index + delta))];
+      if (!next) return;
+      if (mode === 'preview') await this.openPhoto(next);
+      else {
+        this.selected = toggleSelection(this.selected, this.photos.map(p => p.id), next.id, this.anchor ?? currentId ?? null, range, false);
+        if (!range) this.anchor = next.id;
+        this.current = next; this.selectionChanged();
+        const tile = this.grid.querySelector<HTMLElement>(`.pw-tile[data-id="${next.id}"]`);
+        tile?.focus({ preventScroll: true }); tile?.scrollIntoView({ block: 'nearest' });
+      }
     } finally { this.navigating = false; }
   }
+  async flushRecipe(): Promise<void> {
+    if (this.recipeTimer) { clearTimeout(this.recipeTimer); this.recipeTimer = null; }
+    if (this.current && this.mode === 'preview') await this.plugin.saveRecipe(this.current.id, this.recipe, this.recipeCatalog);
+  }
+  resetAfterFileSave(): void {
+    if (this.recipeTimer) { clearTimeout(this.recipeTimer); this.recipeTimer = null; }
+    if (this.renderTimer) { clearTimeout(this.renderTimer); this.renderTimer = null; }
+    this.recipe = freshRecipe(); this.history = []; this.future = []; this.cropMode = false; this.cropDraft = null;
+  }
+  clearThumbnailCache(): void { this.thumbnails.dispose(); this.thumbnails = new ThumbnailCache(this.plugin.bridge, photo => this.plugin.settings.recipes[this.plugin.recipeKey(photo.id)]); }
+  async saveEdits(): Promise<void> { try { await saveEdits(this.plugin, this); } catch (error) { this.plugin.fail(error); } }
+  async undoSavedEdits(): Promise<void> { await undoSavedEdits(this.plugin, this); }
+  async undoEdit(): Promise<void> {
+    if (this.plugin.busy || this.plugin.scanning) return;
+    if (this.cropMode) { this.finishCrop(false); return; }
+    if (this.mode === 'preview' && this.history.length) this.undoRecipe();
+    else if (this.mode === 'preview' && hasEdits(this.recipe)) { this.future.push(structuredClone(this.recipe)); this.commitRecipe(freshRecipe(), false); this.plugin.emit('selection'); }
+    else if (this.mode === 'grid' && this.plugin.settings.luckyUndo) await this.plugin.undoLuckyBatch();
+    else await this.undoSavedEdits();
+  }
   commitRecipe(next: Recipe, saveHistory = true): void {
+    if (this.plugin.busy) return;
     if (saveHistory) { this.history.push(structuredClone(this.recipe)); if (this.history.length > 60) this.history.shift(); this.future = []; }
     this.recipe = structuredClone(next);
     if (this.renderTimer) clearTimeout(this.renderTimer); this.renderTimer = setTimeout(() => this.renderPreview(), 40);
@@ -499,13 +563,15 @@ export class BrowserView extends PhotoView {
     if (id !== undefined) this.recipeTimer = setTimeout(() => { void this.plugin.saveRecipe(id, recipe, catalog); }, 250);
   }
   undoRecipe(): void { const previous = this.history.pop(); if (!previous) return; this.future.push(structuredClone(this.recipe)); this.commitRecipe(previous, false); this.plugin.emit('selection'); }
-  redoRecipe(): void { const next = this.future.pop(); if (!next) return; this.history.push(structuredClone(this.recipe)); this.commitRecipe(next, false); this.plugin.emit('selection'); }
+  redoRecipe(): void { if (this.plugin.busy || this.mode !== 'preview') return; const next = this.future.pop(); if (!next) return; this.history.push(structuredClone(this.recipe)); this.commitRecipe(next, false); this.plugin.emit('selection'); }
   async rotateSelected(): Promise<void> {
+    if (this.plugin.busy) return;
     if (this.mode === 'preview') {
       this.cropMode = false; this.cropDraft = null;
       this.commitRecipe(rotateRecipe(this.recipe)); this.plugin.emit('selection');
     } else {
       const catalog = this.plugin.catalog?.key;
+      this.plugin.settings.luckyUndo = Object.fromEntries([...this.selected].map(id => [this.plugin.recipeKey(id), this.plugin.settings.recipes[this.plugin.recipeKey(id)] ? structuredClone(this.plugin.settings.recipes[this.plugin.recipeKey(id)]) : null]));
       for (const id of this.selected) await this.plugin.saveRecipe(id, rotateRecipe(this.plugin.settings.recipes[this.plugin.recipeKey(id)] ?? freshRecipe()), catalog);
       await this.reload(true);
     }
@@ -619,37 +685,12 @@ export class BrowserView extends PhotoView {
     canvas.width = 256; canvas.height = 65; const out = canvas.getContext('2d')!;
     out.fillStyle = '#8aa9b8'; bins.forEach((value, i) => out.fillRect(i, 65 - value / max * 65, 1, value / max * 65)); sample.width = sample.height = 1;
   }
-  async exportCopy(): Promise<void> {
-    if (!this.bitmap || !this.current) return;
-    if (this.embeddedPreview) { new Notice('This is an embedded preview. Export from a developed JPEG or PNG to preserve full image quality.'); return; }
-    if (this.bitmap.width * this.bitmap.height > 60_000_000) { new Notice('This image exceeds the 60 megapixel editing export limit.'); return; }
-    const photo = this.current, recipe = structuredClone(this.recipe), catalog = this.recipeCatalog, connection = structuredClone(this.plugin.settings);
-    try {
-      const canvas = renderPhoto(this.bitmap, recipe, Math.max(this.bitmap.width, this.bitmap.height));
-      const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('PNG export failed')), 'image/png'));
-      const folder = normalizePath(this.plugin.settings.exportFolder);
-      if (folder.startsWith('/') || folder.split('/').includes('..') || /^[a-z]:/i.test(folder)) throw new Error('Choose an export folder inside the vault.');
-      if (!this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
-      const stem = photo.name.slice(0, -extname(photo.name).length).replace(/[\\/:*?"<>|]/g, '-');
-      let path = normalizePath(`${folder}/${stem}-edited.png`), suffix = 2;
-      while (this.app.vault.getAbstractFileByPath(path)) path = normalizePath(`${folder}/${stem}-edited-${suffix++}.png`);
-      await this.app.vault.createBinary(path, await blob.arrayBuffer());
-      await this.plugin.saveRecipe(photo.id, recipe, catalog);
-      let metadataSaved = false;
-      const adapter = this.app.vault.adapter;
-      if (adapter instanceof FileSystemAdapter) {
-        try {
-          await this.plugin.bridge.run('export-metadata', { settings: connection, id: photo.id, outputPath: join(adapter.getBasePath(), path), exportRoot: join(adapter.getBasePath(), folder), width: canvas.width, height: canvas.height });
-          metadataSaved = true;
-        } catch (error) { new Notice(`The image was exported, but metadata copying failed: ${String(error)}`, 10000); }
-      }
-      canvas.width = canvas.height = 1;
-      new Notice(`Saved ${path}${metadataSaved ? ' with photo metadata' : ''}. Export is an sRGB PNG copy.`);
-    } catch (error) { this.plugin.fail(error); }
-  }
+  async exportCopy(): Promise<void> { await this.flushRecipe(); this.plugin.exportPhotos(); }
+
 }
 
 export class InspectorView extends PhotoView {
+  private closedSections = new Set<string>();
   getViewType(): string { return VIEW_TYPES.inspector; }
   getDisplayText(): string { return 'Photo inspector'; }
   getIcon(): string { return 'sliders-horizontal'; }
@@ -695,12 +736,19 @@ export class InspectorView extends PhotoView {
     this.contentEl.scrollTop = scroll;
   }
   private editor(browser: BrowserView): void {
-    const section = this.contentEl.createDiv('pw-editor'); section.createEl('p', { cls: 'pw-eyebrow', text: 'Image adjustments' });
+    const group = (parent: HTMLElement, title: string): HTMLDetailsElement => {
+      const details = parent.createEl('details', { cls: 'pw-adjustment-section' }); details.open = !this.closedSections.has(title);
+      details.createEl('summary', { text: title });
+      details.addEventListener('toggle', () => { if (details.open) this.closedSections.delete(title); else this.closedSections.add(title); });
+      return details;
+    };
+    const section = group(this.contentEl, 'Image adjustments'); section.addClass('pw-editor');
+    let controls: HTMLElement;
     if (browser.embeddedPreview) section.createEl('p', { cls: 'pw-hint', text: 'RAW / embedded preview. Adjustments can be previewed, but full-quality export requires a developed image.' });
     const histogramCanvas = section.createEl('canvas', { cls: 'pw-histogram', attr: { 'aria-label': 'Luminance histogram' } }); browser.drawHistogram(histogramCanvas);
     button(section, 'I’m Feeling Lucky', () => { browser.commitRecipe({ ...browser.recipe, auto: 100 }); this.render(); }).addClass('pw-lucky');
     const slider = (name: string, key: keyof Recipe, min: number, max: number, step: number) => {
-      const row = section.createDiv('pw-adjustment'); const heading = row.createDiv('pw-adjustment-label'); heading.createSpan({ text: name }); const value = heading.createSpan({ text: String(browser.recipe[key]) });
+      const row = controls.createDiv('pw-adjustment'); const heading = row.createDiv('pw-adjustment-label'); heading.createSpan({ text: name }); const value = heading.createSpan({ text: String(browser.recipe[key]) });
       const input = row.createEl('input', { type: 'range', attr: { min: String(min), max: String(max), step: String(step), 'aria-label': name } }); input.value = String(browser.recipe[key]);
       let baseline: Recipe | null = null;
       input.addEventListener('pointerdown', () => { baseline = structuredClone(browser.recipe); });
@@ -712,20 +760,21 @@ export class InspectorView extends PhotoView {
       });
       input.addEventListener('change', () => { if (baseline) { const final = structuredClone(browser.recipe); browser.recipe = baseline; browser.commitRecipe(final); baseline = null; } browser.drawHistogram(histogramCanvas); });
     };
+    controls = group(section, 'Color and tone');
     slider('Automatic strength', 'auto', 0, 100, 1);
     slider('Exposure', 'exposure', -3, 3, .05); slider('Contrast', 'contrast', -75, 100, 1);
     slider('Highlights', 'highlights', -100, 100, 1); slider('Shadows', 'shadows', -100, 100, 1);
     slider('Temperature', 'temperature', -100, 100, 1); slider('Tint', 'tint', -100, 100, 1);
     slider('Saturation', 'saturation', -100, 100, 1); slider('Vibrance', 'vibrance', -100, 100, 1);
-    section.createEl('p', { cls: 'pw-eyebrow', text: 'Levels' });
+    controls = group(section, 'Levels');
     slider('Black point', 'black', 0, 254, 1); slider('White point', 'white', 1, 255, 1); slider('Midtone gamma', 'gamma', .2, 3, .05);
-    section.createEl('p', { cls: 'pw-eyebrow', text: 'Geometry' }); slider('Straighten', 'angle', -15, 15, .1);
-    new Setting(section).setName('Crop ratio').addDropdown(d => {
+    controls = group(section, 'Geometry'); slider('Straighten', 'angle', -15, 15, .1);
+    new Setting(controls).setName('Crop ratio').addDropdown(d => {
       for (const [value, label] of [['free', 'Free'], ['original', 'Original'], ['1', '1:1'], [String(4 / 3), '4:3'], [String(3 / 2), '3:2'], [String(16 / 9), '16:9'], [String(2 / 3), '2:3'], [String(3 / 4), '3:4']]) d.addOption(value, label);
       if (!['free', 'original', '1', String(4 / 3), String(3 / 2), String(16 / 9), String(2 / 3), String(3 / 4)].includes(browser.recipe.cropRatio)) d.addOption(browser.recipe.cropRatio, 'Custom');
       d.setValue(browser.recipe.cropRatio).onChange(value => browser.commitRecipe({ ...browser.recipe, cropRatio: value }));
     });
-    const actions = section.createDiv('pw-actions');
+    const actions = controls.createDiv('pw-actions');
     if (browser.cropMode) { button(actions, 'Apply crop', () => browser.finishCrop(true)); button(actions, 'Cancel crop', () => browser.finishCrop(false)); }
     else button(actions, 'Adjust crop', () => browser.beginCrop());
     button(actions, 'Custom ratio', () => new TextPrompt(this.plugin, 'Custom crop ratio', 'Enter width:height, such as 5:7.', '5:7', value => { const [w, h] = value.split(':').map(Number); if (!(w > 0 && h > 0)) { new Notice('Use a positive width:height ratio.'); return; } browser.commitRecipe({ ...browser.recipe, cropRatio: String(w / h) }); this.render(); }).open());
@@ -733,6 +782,6 @@ export class InspectorView extends PhotoView {
     button(actions, 'Reset crop', () => { browser.commitRecipe({ ...browser.recipe, crop: { x: 0, y: 0, width: 1, height: 1 } }); });
     if (browser.cropMode) section.createEl('p', { cls: 'pw-hint', text: 'Drag the crop area to move it, or drag its handles to resize. Apply crop (Enter) commits; Escape cancels. Focus a handle and use arrow keys for fine adjustments.' });
     button(section, 'Reset all adjustments', () => { browser.commitRecipe(freshRecipe()); this.render(); });
-    section.createEl('p', { cls: 'pw-hint', text: 'Recipes are saved in this vault. Export creates an sRGB PNG copy. Original image pixels are unchanged.' });
+    section.createEl('p', { cls: 'pw-hint', text: 'Adjustments are stored in this vault until you save or export. Cmd/Ctrl+S writes them to JPEG, PNG, or WebP originals with recovery backups. Export offers original format, PNG, or JPG. Rendering uses 8-bit sRGB; JPG is re-encoded.' });
   }
 }
