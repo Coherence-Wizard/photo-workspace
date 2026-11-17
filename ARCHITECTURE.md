@@ -31,6 +31,6 @@ Each photo operation records a UUID, batch ID, original hash, backup path, targe
 Cross-application filesystem writes cannot form a single transaction with digiKam's database. The visible pending overlay is intentional. Refreshing the catalog must not silently discard pending writes or resurrect removed tags.
 
 
-## 0.2.0 extensions
+## Photo workflow extensions
 
 Folder mode builds a plugin-owned SQLite index using ExifTool in bounded groups. The digiKam adapter continues to open its source database read-only. Both expose the existing query/metadata contract. File operations journal path changes, preserve metadata-journal targets, and retain IDs for plugin-initiated moves in folder mode. System app launching and Trash live in `system.ts`; batch resizing/export lives in `export.ts`. Tag suggestions use Obsidian AbstractInputSuggest. Tags and vault folders have separate scroll containers.

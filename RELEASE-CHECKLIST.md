@@ -1,19 +1,21 @@
 # Community release checklist
 
-The source and installable package are prepared for a beta. Public submission is a separate release milestone.
+## First public release: 0.0.2
 
-- [ ] Live smoke test on current Obsidian for macOS, Windows, and Linux.
-- [ ] End-to-end import of sidecars into supported digiKam versions, including hierarchical keywords, ratings, pick labels, and color labels.
-- [ ] Verify metadata namespace priorities against digiKam default and at least one customized metadata profile.
-- [ ] Verify existing JPEG/RAW paired filenames, both sidecar conventions, read-only media, disconnected drives, Unicode paths, and Windows paths.
-- [ ] Verify exports with wide-gamut profiles, rotated EXIF images, transparency, and face regions.
-- [ ] Test interrupted write and undo on all operating systems, and multiple Obsidian instances sharing files.
-- [ ] Test large collections with cold caches, long tag trees, and deep pagination.
-- [ ] Confirm supported digiKam schema versions and document unsupported versions.
-- [ ] Complete keyboard and screen-reader testing for selection, cropping alternatives, and tag assignment.
-- [ ] Decide whether to retain external Python/ExifTool setup or ship a signed, versioned helper; document platform prerequisites.
-- [ ] Publish a public source repository, support policy, and tagged GitHub release containing `main.js`, `manifest.json`, and `styles.css`.
-- [ ] Recheck current Obsidian developer policies, licensing, naming, minAppVersion, and disclosure requirements.
-- [ ] Submit a pull request to the official community plugin directory and resolve review feedback.
+- [x] Build the reviewable JavaScript bundle and run 36 automated tests with ExifTool enabled.
+- [x] Smoke-test the workspace, preview navigation, tag input, folder headings, and export controls in macOS Obsidian.
+- [x] Document Python/ExifTool setup, optional digiKam, metadata destinations, filesystem access, and local subprocesses.
+- [x] Publish the public source repository and tagged GitHub release with `main.js`, `manifest.json`, and `styles.css`.
+- [x] Review current Obsidian developer policies and submission requirements.
+- [x] Publish the official Obsidian Community listing. Automated review completed with no errors and reproduced `main.js` byte-for-byte; warnings and recommendations remain.
 
-Do not mark an operating system or digiKam version supported solely because a build or synthetic test passed.
+## Wider acceptance testing
+
+- [ ] Live graphical smoke tests on Windows and Linux (automated tests are separate).
+- [ ] Additional digiKam versions and customized metadata namespace profiles.
+- [ ] More RAW pairs, sidecar conventions, read-only media, and disconnected-drive cases.
+- [ ] Wide-gamut export, rotated EXIF images, transparency, and face regions.
+- [ ] Interrupted writes across operating systems and multiple Obsidian instances.
+- [ ] Keyboard and screen-reader coverage for every editing control.
+
+Do not mark an operating system or digiKam version supported solely because a build or synthetic test passed. See VALIDATION.md for known limits and the GitHub Actions history for current automated results.

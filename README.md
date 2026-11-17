@@ -2,7 +2,7 @@
 
 Browse a photo folder or digiKam collection inside Obsidian, assign hierarchical metadata tags in batches, and edit images without overwriting the originals.
 
-**Version 0.0.2 is the first public desktop release. Community-directory availability depends on Obsidian review.**
+**Version 0.0.2 is the first public desktop release.** [Install from the official Obsidian Community listing](https://community.obsidian.md/plugins/photo-workspace).
 
 ## Included
 
@@ -40,6 +40,10 @@ In the connection settings, **Include subfolders when browsing** controls folder
 Select multiple tags with **Cmd-click** (Mac) or **Ctrl-click** (Windows/Linux), or **Shift-click** a range. Right-click the selection to delete all selected tags from matching photos in one undoable batch. The review shows a distinct photo count, and you can choose whether to include subtags.
 
 ## Installation
+
+Open the [official listing](https://community.obsidian.md/plugins/photo-workspace) and choose **Add to Obsidian**, or find **Photo Workspace** in Settings → Community plugins → Browse. Python and ExifTool still need to be installed separately; the plugin settings walk through that setup.
+
+For a manual installation:
 
 1. Create or open the Obsidian vault you want to use for photos.
 2. Copy the `photo-workspace` release folder into `<vault>/<config directory>/plugins/`. The default configuration directory is `.obsidian`.
