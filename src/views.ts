@@ -285,9 +285,9 @@ export class BrowserView extends PhotoView {
       const zoomLabel = this.toolbar.createSpan({ cls: 'pw-zoom-label' });
       const syncZoom = () => { zoom.value = String(this.zoom === 'fit' ? 100 : this.zoom * 100); zoomLabel.setText(this.zoom === 'fit' ? 'Fit' : Math.round(this.zoom * 100) + '%'); };
       zoom.addEventListener('input', () => { this.setZoom(Number(zoom.value) / 100); syncZoom(); });
-      button(this.toolbar, 'Rotate', () => { void this.rotateSelected(); });
       button(this.toolbar, 'Fit', () => { this.setZoom('fit'); syncZoom(); });
       button(this.toolbar, '100%', () => { this.setZoom(1); syncZoom(); }); syncZoom();
+      button(this.toolbar, 'Rotate', () => { void this.rotateSelected(); });
       const compare = button(this.toolbar, 'Before', () => {}, 'Hold to view the original');
       compare.addEventListener('pointerdown', () => this.renderPreview(true)); compare.addEventListener('pointerup', () => this.renderPreview()); compare.addEventListener('pointerleave', () => this.renderPreview());
       button(this.toolbar, 'Undo', () => this.undoRecipe()); button(this.toolbar, 'Redo', () => this.redoRecipe());
