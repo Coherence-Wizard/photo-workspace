@@ -130,3 +130,5 @@
 .pw-adjustment-section { margin: 12px 0; }
 .pw-adjustment-section > summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
 .pw-adjustment-section > .pw-adjustment-section { margin-left: 4px; }
+.pw-analysis-card { display: grid; gap: 6px; padding: 12px 0; border-bottom: 1px solid var(--background-modifier-border); overflow-wrap: anywhere; }
+.pw-analysis-card button { justify-self: start; max-width: 100%; overflow: hidden; }

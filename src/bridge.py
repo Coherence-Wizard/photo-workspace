@@ -828,6 +828,8 @@ class Catalog:
 
 def dispatch(request):
     action = request.get('action')
+    if action.startswith('advanced-'):
+        return advanced_request(request)
     if action == 'diagnostics':
         result = {'python': sys.version.split()[0], 'sqlite': sqlite3.sqlite_version}
         try:

@@ -1,3 +1,4 @@
+import { registerAdvanced, advancedSettings } from './advanced';
 import { Plugin, PluginSettingTab, Setting, Modal, Notice, FileSystemAdapter, WorkspaceLeaf, TFile, normalizePath, AbstractInputSuggest } from 'obsidian';
 import { join, dirname, basename, extname } from 'node:path';
 import { reconcileSavedRecipes } from './save-edits';
@@ -63,6 +64,7 @@ export default class PhotoWorkspace extends Plugin {
     photoCommand('show-grid', 'Return to photo thumbnails', () => hasPhotos() && this.activeBrowser?.mode === 'preview', () => this.activeBrowser?.showGrid());
     photoCommand('export-photos', 'Export photos', hasPhotos, () => this.exportPhotos());
     photoCommand('feeling-lucky', 'Apply I’m Feeling Lucky to selected photos', hasSelection, () => { void this.luckyBatch(); });
+    registerAdvanced(this);
     this.addSettingTab(new PhotoSettings(this));
     this.registerEvent(this.app.workspace.on('active-leaf-change', leaf => {
       if (leaf?.view instanceof BrowserView) { this.activeBrowser = leaf.view; this.emit('selection'); this.emit('filters'); }
@@ -207,11 +209,11 @@ export default class PhotoWorkspace extends Plugin {
       void this.fileBatch([photo.id], (id, connection) => this.bridge.run('file-operation', { settings: connection, id, operation: 'move', destination: join(dirname(photo.path!), name.trim()) }));
     }).open();
   }
-  deletePhotos(ids: number[]): void {
+  deletePhotos(ids: number[], verify?: (id: number) => Promise<void>): void {
     const catalog = this.catalog?.key;
     new ConfirmAction(this, 'Delete photos', `Move ${ids.length} photos and their associated sidecars to the system Trash/Recycle Bin? Restore them there if needed. Metadata Undo does not restore deleted files.`, 'Move to Trash', () => {
       if (catalog !== this.catalog?.key) { new Notice('Collection changed. Reopen Delete.'); return; }
-      void this.fileBatch(ids, async (id, connection) => { const paths = await this.bridge.run<string[]>('file-paths', { settings: connection, id }); await trashPhotoFiles(paths); await this.bridge.run('file-deleted', { settings: connection, id }); });
+      void this.fileBatch(ids, async (id, connection) => { await verify?.(id); const paths = await this.bridge.run<string[]>('file-paths', { settings: connection, id }); await trashPhotoFiles(paths); await this.bridge.run('file-deleted', { settings: connection, id }); });
     }).open();
   }
   private async fileBatch(ids: number[], action: (id: number, connection: Settings) => Promise<unknown>): Promise<void> {
@@ -412,6 +414,7 @@ function renderSettings(el: HTMLElement, plugin: PhotoWorkspace): void {
   new Setting(el).setName('Edited exports').setHeading();
   new Setting(el).setName('Vault export folder').setDesc('Edited copies are saved here as sRGB PNG files. Original image files remain unchanged.').addText(t => t.setValue(settings.exportFolder).onChange(async v => { settings.exportFolder = v.trim() || 'Photo exports'; await plugin.save(); }));
   new Setting(el).addButton(b => b.setButtonText('Refresh workspace').onClick(() => { void plugin.refresh(); }));
+  advancedSettings(el, plugin);
 }
 
 function setupHelp(el: HTMLElement, plugin: PhotoWorkspace): void {

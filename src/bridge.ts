@@ -3,7 +3,9 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import bridgeSource from './bridge.py';
+import baseSource from './bridge.py';
+import advancedSource from './advanced.py';
+const bridgeSource = baseSource.replace("if __name__ == '__main__':", () => advancedSource + "\nif __name__ == '__main__':");
 import type { Settings } from './types';
 
 export class Bridge {
@@ -12,17 +14,18 @@ export class Bridge {
   private helper: Promise<string> | null = null;
   constructor(private settings: () => Settings, readonly dataDir: string) {}
 
-  async run<T>(action: string, payload: Record<string, unknown> = {}, progress?: (value: { processed: number; total: number; errors: number }) => void): Promise<T> {
+  async run<T>(action: string, payload: Record<string, unknown> = {}, progress?: (value: { processed: number; total: number; errors: number }) => void, signal?: AbortSignal): Promise<T> {
     const configured = this.settings().pythonPath;
     const helper = await (this.helper ??= this.prepareHelper());
-    const candidates = configured ? [configured] : this.python ? [this.python] : process.platform === 'win32'
+    const advancedPython = join(this.dataDir, 'advanced', 'venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+    const candidates = action.startsWith('advanced-') && !['advanced-install','advanced-status'].includes(action) ? [advancedPython] : configured ? [configured] : this.python ? [this.python] : process.platform === 'win32'
       ? ['python', 'python3'] : ['/opt/homebrew/bin/python3', '/usr/local/bin/python3', 'python3'];
     let last: Error = new Error('Python 3 was not found. Install Python 3.10 or newer and set its path in Coherence Photo settings.');
     for (const command of candidates) {
       if (command.startsWith('/') && !existsSync(command)) continue;
       try {
-        const result = await this.execute<T>(command, helper, { action, settings: this.settings(), dataDir: this.dataDir, ...payload }, progress);
-        this.python = command;
+        const result = await this.execute<T>(command, helper, { action, settings: this.settings(), dataDir: this.dataDir, ...payload }, progress, signal);
+        if (command !== advancedPython) this.python = command;
         return result;
       } catch (error) {
         last = error as Error;
@@ -42,9 +45,9 @@ export class Bridge {
     await rename(temporary, target);
     return target;
   }
-  private execute<T>(command: string, helper: string, request: Record<string, unknown>, progress?: (value: { processed: number; total: number; errors: number }) => void): Promise<T> {
+  private execute<T>(command: string, helper: string, request: Record<string, unknown>, progress?: (value: { processed: number; total: number; errors: number }) => void, signal?: AbortSignal): Promise<T> {
     return new Promise((resolve, reject) => {
-      const child = spawn(command, [helper], { stdio: 'pipe', windowsHide: true });
+      const child = spawn(command, [helper], { stdio: 'pipe', windowsHide: true, signal });
       this.children.add(child);
       let out = '', err = '', settled = false;
       const finish = (error?: Error, value?: T) => {
@@ -52,7 +55,7 @@ export class Bridge {
         settled = true; clearTimeout(timer); this.children.delete(child);
         if (error) reject(error); else resolve(value as T);
       };
-      const timer = setTimeout(() => { child.kill(); finish(new Error('The local photo operation timed out. Refresh to recover any completed writes.')); }, request.action === 'scan' ? 7_200_000 : request.action === 'write' ? 600_000 : 120_000);
+      const timer = setTimeout(() => { child.kill(); finish(new Error('The local photo operation timed out. Refresh to recover any completed writes.')); }, ['scan','advanced-install','advanced-scan'].includes(String(request.action)) ? 7_200_000 : request.action === 'write' ? 600_000 : 120_000);
       child.stdout.on('data', (chunk: Buffer) => {
         out += chunk.toString('utf8');
         if (out.length > 100 * 1024 * 1024) { child.kill(); finish(new Error('Local response exceeded its size limit.')); }

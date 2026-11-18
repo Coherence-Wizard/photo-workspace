@@ -114,3 +114,13 @@ Release files are `main.js`, `manifest.json`, and `styles.css`. The Python helpe
 Report bugs in [GitHub Issues](https://github.com/Coherence-Wizard/photo-workspace/issues), including OS, Obsidian/plugin version, and error text. Do not upload private photos or databases. Future timeline, faces, map, and richer export tools can use the same photo/query interface; see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Coherence Photo is an independent community project, not an official Obsidian product. Released under the [MIT License](LICENSE).
+
+## Optional advanced tools (0.1.0)
+
+Expand **Advanced** at the bottom of Coherence Photo settings and select **Set up** beside each tool you want. Setup uses a private Python environment in the vault’s plugin data directory and downloads packages from PyPI. The two recognition tools also download checksum-verified models from Hugging Face. Python 3.12 is a good choice if your system Python lacks compatible wheels. Open each tool from the command palette, then choose **Scan collection** in its right-hand tab. Progress is cached in batches so a paused scan can resume. Photos, search text, face examples, and index data stay on the computer.
+
+- **Duplicate wizard** groups supported single-frame images with equal oriented pixel values, dimensions, and ICC profiles. Metadata can differ. Compare paths, tags, and ratings or preview a photo. Keep one or more checked, then review the Trash action for unchecked copies. Recompressed pictures with differing pixels are outside this comparison.
+- **People recognition** shows detected faces and suggests the closest confirmed name when it meets the fuzziness threshold. Increase fuzziness and update suggestions to review looser matches. Confirming a name writes a People/Name keyword using your configured metadata destination. Enable metadata writing first. Face examples stay in the analysis index. Scanning uses OpenCV YuNet and SFace.
+- **Semantic search** uses quantized CLIP vision and text models to rank indexed images by an English description such as “rusty door”. Results open in the photo preview. A first scan decodes each supported photo. Later scans reuse unchanged results. Unsupported files are counted as skipped.
+
+Model sources and licenses: [YuNet](https://huggingface.co/opencv/face_detection_yunet), [SFace](https://huggingface.co/opencv/face_recognition_sface), and [CLIP ViT-B/32 ONNX](https://huggingface.co/Xenova/clip-vit-base-patch32). The analysis SQLite file is stored per collection under plugin local-data. Back it up to preserve confirmed face examples.
