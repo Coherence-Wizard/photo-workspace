@@ -1,4 +1,4 @@
-import hashlib
+from contextlib import closing
 import importlib.util
 import sqlite3
 import tempfile
@@ -31,7 +31,7 @@ class AdvancedTests(unittest.TestCase):
             marker = Path(req['dataDir'])/'advanced/duplicates.ready'
             marker.parent.mkdir(); marker.touch()
             self.assertEqual(bridge.dispatch(req),[])
-            with sqlite3.connect(cat.data/'analysis-v1.sqlite') as db:
+            with closing(sqlite3.connect(cat.data/'analysis-v1.sqlite')) as db, db:
                 for iid, pixels in [(1,'one'),(2,'one'),(3,'other')]:
                     db.execute('INSERT INTO items VALUES(?,?,?,?,?,?)',('duplicates',iid,cat.photo(iid)['path'],'stamp',pixels,'test'))
             group, = bridge.dispatch(req)
